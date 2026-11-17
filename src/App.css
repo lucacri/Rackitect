@@ -1133,3 +1133,7 @@ html, body, #root {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
+
+/* Grouped devices: dashed inner edge so groups read as one unit */
+.dev-tile.in-group { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45); outline-style: dashed; }
+.dev-tile.in-group.is-selected { outline: 2px dashed #fff; }

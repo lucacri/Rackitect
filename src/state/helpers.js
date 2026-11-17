@@ -17,6 +17,7 @@ const DEFAULT_STATE = {
 	devices: {},
 	slots: Array.from({ length: 12 }, mkSlot),
 	selId: null,
+	selIds: [],
 	libOverrides: {},
 	customLib: [],
 };
@@ -79,6 +80,7 @@ function normalizeDevice(id, dev, rackSize) {
 		pwr: normalizePower(dev.pwr),
 		ports: normalizePorts(dev.ports),
 		notes: typeof dev.notes === "string" ? dev.notes : "",
+		...(typeof dev.groupId === "string" ? { groupId: dev.groupId } : {}),
 	};
 	if (cat === "shelf") {
 		normalized.shelved = normalizeShelvedItems(id, dev.shelved);
@@ -307,4 +309,66 @@ export function rackSummary(state) {
 			? Math.min(100, Math.round((w / state.powerCap) * 100))
 			: 0;
 	return { uU, freeU: state.rackSize - uU, w, pct };
+}
+
+// ── Slot mutation (pure) ──────────────────────────────────────────────────────
+
+export function removeDeviceFromSlots(slots, deviceId) {
+	return slots.map((s) => ({
+		...s,
+		items: s.items.filter((it) => it.id !== deviceId),
+		spanOf: s.spanOf?.id === deviceId ? null : s.spanOf,
+	}));
+}
+
+export function placeDeviceInSlots(slots, device, rowIndex) {
+	const next = slots.map((s) => ({ ...s, items: [...s.items] }));
+	next[rowIndex].items.push({ id: device.id, u: device.u });
+	for (let i = 1; i < device.uH; i++) {
+		next[rowIndex + i] = {
+			...next[rowIndex + i],
+			spanOf: { id: device.id, offset: i },
+		};
+	}
+	return next;
+}
+
+// ── Multi-device moves (swap, group) ──────────────────────────────────────────
+
+// Lift every device in `moves` ([{ id, row }]), then re-place each at its new row.
+// Returns the new slots, or null if any device would not fit.
+export function planMoves(state, moves) {
+	let slots = state.slots;
+	for (const { id } of moves) slots = removeDeviceFromSlots(slots, id);
+	for (const { id, row } of moves) {
+		const dev = state.devices[id];
+		if (!dev || !canPlace(slots, state.rackSize, row, dev)) return null;
+		slots = placeDeviceInSlots(slots, dev, row);
+	}
+	return slots;
+}
+
+// Rack-placed ids sharing `groupId`
+export function groupMembers(state, groupId) {
+	if (!groupId) return [];
+	return Object.values(state.devices)
+		.filter((d) => d.groupId === groupId && findRow(state.slots, d.id) >= 0)
+		.map((d) => d.id);
+}
+
+// Moves that shift a whole group so `anchorId` lands on `toRow`
+export function groupMoves(state, anchorId, toRow) {
+	const delta = toRow - findRow(state.slots, anchorId);
+	return groupMembers(state, state.devices[anchorId]?.groupId).map((id) => ({
+		id,
+		row: findRow(state.slots, id) + delta,
+	}));
+}
+
+// Moves that exchange the rows of two rack devices
+export function swapMoves(state, aId, bId) {
+	return [
+		{ id: aId, row: findRow(state.slots, bId) },
+		{ id: bId, row: findRow(state.slots, aId) },
+	];
 }

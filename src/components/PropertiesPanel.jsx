@@ -339,16 +339,84 @@ function DeviceDetail({ device }) {
 	);
 }
 
+// ── Multi-selection: group / ungroup ─────────────────────────────────────────
+
+function MultiSelection({ devices }) {
+	const { dispatch } = useApp();
+	const groupId = devices[0].groupId;
+	const isOneGroup = !!groupId && devices.every((d) => d.groupId === groupId);
+
+	return (
+		<div className="props-body">
+			<div className="props-section-title">
+				{isOneGroup ? "Group" : `${devices.length} selected`}
+			</div>
+			<div className="props-device-list">
+				{devices.map((dev) => {
+					const { bg, fg } = CAT_COLORS[dev.cat] ?? CAT_COLORS.custom;
+					return (
+						<div
+							key={dev.id}
+							className="props-dev-row"
+							style={{ background: bg, color: fg }}
+						>
+							<span className="props-dev-name">{dev.name}</span>
+						</div>
+					);
+				})}
+			</div>
+			<div className="props-muted" style={{ fontSize: 11, margin: "8px 0" }}>
+				{isOneGroup
+					? "Drag any member to move the whole group."
+					: "Shift- or ⌘-click devices to add or remove them."}
+			</div>
+			<div className="props-actions">
+				{isOneGroup ? (
+					<button
+						className="btn btn-sm"
+						style={{ width: "100%" }}
+						onClick={() => dispatch({ type: "UNGROUP", groupId })}
+					>
+						Ungroup
+					</button>
+				) : (
+					<button
+						className="btn btn-sm"
+						style={{ width: "100%" }}
+						onClick={() =>
+							dispatch({
+								type: "GROUP_DEVICES",
+								ids: devices.map((d) => d.id),
+							})
+						}
+					>
+						Group as one unit
+					</button>
+				)}
+			</div>
+		</div>
+	);
+}
+
 // ── PropertiesPanel ───────────────────────────────────────────────────────────
 
 export default function PropertiesPanel() {
 	const { state } = useApp();
 	const selDev = state.selId ? state.devices[state.selId] : null;
+	const multi = (state.selIds ?? [])
+		.map((id) => state.devices[id])
+		.filter(Boolean);
 
 	return (
 		<aside className="panel-right">
 			<div className="panel-head">{selDev ? "Properties" : "Rack info"}</div>
-			{selDev ? <DeviceDetail device={selDev} /> : <RackSummary />}
+			{multi.length > 1 ? (
+				<MultiSelection devices={multi} />
+			) : selDev ? (
+				<DeviceDetail device={selDev} />
+			) : (
+				<RackSummary />
+			)}
 		</aside>
 	);
 }

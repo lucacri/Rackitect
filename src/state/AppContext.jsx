@@ -5,7 +5,17 @@ import {
 	useEffect,
 	useRef,
 } from "react";
-import { canPlace, canPlaceOnShelf, mkSlot, normalizeState } from "./helpers";
+import {
+	canPlace,
+	canPlaceOnShelf,
+	groupMembers,
+	mkSlot,
+	normalizeState,
+	placeDeviceInSlots,
+	planMoves,
+	removeDeviceFromSlots,
+	uid,
+} from "./helpers";
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 
@@ -16,31 +26,12 @@ export const INIT = {
 	devices: {}, // id -> device
 	slots: Array.from({ length: 12 }, mkSlot),
 	selId: null,
+	selIds: [], // multi-selection (shift/cmd-click or a whole group)
 	libOverrides: {}, // libId -> override fields
 	customLib: [], // user-created library entries
 };
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
-
-function removeDeviceFromSlots(slots, deviceId) {
-	return slots.map((s) => ({
-		...s,
-		items: s.items.filter((it) => it.id !== deviceId),
-		spanOf: s.spanOf?.id === deviceId ? null : s.spanOf,
-	}));
-}
-
-function placeDeviceInSlots(slots, device, rowIndex) {
-	const next = slots.map((s) => ({ ...s, items: [...s.items] }));
-	next[rowIndex].items.push({ id: device.id, u: device.u });
-	for (let i = 1; i < device.uH; i++) {
-		next[rowIndex + i] = {
-			...next[rowIndex + i],
-			spanOf: { id: device.id, offset: i },
-		};
-	}
-	return next;
-}
 
 function rebuildPlacedDevices(devices, slots, rackSize) {
 	let rebuiltSlots = Array.from({ length: rackSize }, mkSlot);
@@ -116,6 +107,33 @@ export function reducer(state, action) {
 			return { ...state, slots: placeDeviceInSlots(slots, device, rowIndex) };
 		}
 
+		case "MOVE_DEVICES": {
+			// Atomic multi-move (swap, group move): all fit or nothing changes
+			const slots = planMoves(state, action.moves ?? []);
+			return slots ? { ...state, slots } : state;
+		}
+
+		case "GROUP_DEVICES": {
+			const ids = (action.ids ?? []).filter((id) => state.devices[id]);
+			if (ids.length < 2) return state;
+			const groupId = uid();
+			const devices = { ...state.devices };
+			for (const id of ids) devices[id] = { ...devices[id], groupId };
+			return { ...state, devices };
+		}
+
+		case "UNGROUP": {
+			const devices = Object.fromEntries(
+				Object.entries(state.devices).map(([id, dev]) => {
+					if (!action.groupId || dev.groupId !== action.groupId)
+						return [id, dev];
+					const { groupId: _g, ...rest } = dev;
+					return [id, rest];
+				}),
+			);
+			return { ...state, devices };
+		}
+
 		case "MOVE_DEVICE_TO_SHELF": {
 			const { deviceId, shelfId } = action;
 			const device = state.devices[deviceId];
@@ -123,9 +141,10 @@ export function reducer(state, action) {
 			if (!device || !canPlaceOnShelf(shelf, device)) return state;
 			const devices = { ...state.devices };
 			delete devices[deviceId];
+			const { groupId: _g, ...loose } = device; // shelved items leave their group
 			devices[shelfId] = {
 				...shelf,
-				shelved: [...(shelf.shelved ?? []), device],
+				shelved: [...(shelf.shelved ?? []), loose],
 			};
 			return {
 				...state,
@@ -202,8 +221,27 @@ export function reducer(state, action) {
 			};
 		}
 
-		case "SELECT_DEVICE":
-			return { ...state, selId: action.deviceId };
+		case "SELECT_DEVICE": {
+			const { deviceId, additive } = action;
+			if (!deviceId) return { ...state, selId: null, selIds: [] };
+			if (additive) {
+				const cur = state.selIds?.length
+					? state.selIds
+					: state.selId
+						? [state.selId]
+						: [];
+				const selIds = cur.includes(deviceId)
+					? cur.filter((id) => id !== deviceId)
+					: [...cur, deviceId];
+				return { ...state, selId: selIds.at(-1) ?? null, selIds };
+			}
+			const members = groupMembers(state, state.devices[deviceId]?.groupId);
+			return {
+				...state,
+				selId: deviceId,
+				selIds: members.length > 1 ? members : [deviceId],
+			};
+		}
 
 		case "UPDATE_DEVICE": {
 			if (!state.devices[action.deviceId]) return state;

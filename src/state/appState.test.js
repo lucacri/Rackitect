@@ -352,3 +352,47 @@ describe("library size edit invariant", () => {
 		expect(updated.slots[1]).toEqual(mkSlot());
 	});
 });
+
+describe("swap and group moves", () => {
+	const full = { ...oneU, libId: "full", u: 6 };
+
+	it("swaps two full-width devices when one is dropped on the other", async () => {
+		const { planMoves, swapMoves } = await import("./helpers");
+		let s = place(INIT, full, 0);
+		s = place(s, full, 3);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[3].items[0].id];
+		s = reducer(s, { type: "MOVE_DEVICES", moves: swapMoves(s, a, b) });
+		expect(findRow(s.slots, a)).toBe(3);
+		expect(findRow(s.slots, b)).toBe(0);
+		expect(planMoves(s, swapMoves(s, a, b))).not.toBeNull();
+	});
+
+	it("moves a group as one unit and refuses partial moves", async () => {
+		const { groupMoves } = await import("./helpers");
+		let s = place(INIT, oneU, 0);
+		s = place(s, twoU, 1);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[1].items[0].id];
+		s = reducer(s, { type: "GROUP_DEVICES", ids: [a, b] });
+		s = reducer(s, { type: "MOVE_DEVICES", moves: groupMoves(s, a, 5) });
+		expect(findRow(s.slots, a)).toBe(5);
+		expect(findRow(s.slots, b)).toBe(6);
+		expect(s.slots[7].spanOf?.id).toBe(b);
+
+		// Bottom edge: b would overflow a 12U rack → nothing moves
+		const before = s.slots;
+		s = reducer(s, { type: "MOVE_DEVICES", moves: groupMoves(s, a, 10) });
+		expect(s.slots).toBe(before);
+	});
+
+	it("selecting a grouped device selects the group; ungroup clears it", () => {
+		let s = place(INIT, oneU, 0);
+		s = place(s, oneU, 1);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[1].items[0].id];
+		s = reducer(s, { type: "GROUP_DEVICES", ids: [a, b] });
+		s = reducer(s, { type: "SELECT_DEVICE", deviceId: a });
+		expect(s.selIds.sort()).toEqual([a, b].sort());
+		s = reducer(s, { type: "UNGROUP", groupId: s.devices[a].groupId });
+		expect(s.devices[a].groupId).toBeUndefined();
+		expect(normalizeState(s).devices[b].groupId).toBeUndefined();
+	});
+});
