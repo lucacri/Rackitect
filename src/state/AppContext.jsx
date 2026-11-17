@@ -19,29 +19,50 @@ import {
 	removeDeviceFromSlots,
 	uid,
 } from "./helpers";
+import { clampSize, mkRack, rackOf, rackView, withRackSlots } from "./racks";
 
 export const INIT = DEFAULT_STATE;
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
 
+// Re-place one rack's devices; those that no longer fit are dropped (other racks' devices stay)
 function rebuildPlacedDevices(devices, slots, rackSize) {
 	let rebuiltSlots = Array.from({ length: rackSize }, mkSlot);
-	const keptDevices = {};
+	const keptDevices = { ...devices };
+	const placed = new Set();
 
-	for (let rowIndex = 0; rowIndex < rackSize; rowIndex++) {
+	for (let rowIndex = 0; rowIndex < slots.length; rowIndex++) {
 		const slot = slots[rowIndex];
 		if (!slot || slot.spanOf || !Array.isArray(slot.items)) continue;
 		for (const item of slot.items) {
 			const device = devices[item.id];
-			if (!device || keptDevices[device.id]) continue;
-			if (!canPlace(rebuiltSlots, rackSize, rowIndex, device)) continue;
-			keptDevices[device.id] = device;
+			if (!device || placed.has(device.id)) continue;
+			if (!canPlace(rebuiltSlots, rackSize, rowIndex, device)) {
+				delete keptDevices[device.id];
+				continue;
+			}
+			placed.add(device.id);
 			rebuiltSlots = placeDeviceInSlots(rebuiltSlots, device, rowIndex);
 		}
 	}
 
 	return { devices: keptDevices, slots: rebuiltSlots };
 }
+
+// Run a single-rack case body on one rack's view and write its slots back.
+// Unknown rack, or `fn` returning the view itself, leaves `state` untouched.
+function onRack(state, rackId, fn) {
+	const view = rackView(state, rackId);
+	if (!view) return state;
+	const next = fn(view);
+	return next === view ? state : withRackSlots(next, rackId, next.slots);
+}
+
+const mapRacks = (state, fn) => ({ ...state, racks: state.racks.map(fn) });
+
+// Take a device out of whichever rack holds it
+const unplace = (state, deviceId) =>
+	mapRacks(state, (r) => ({ ...r, slots: removeDeviceFromSlots(r.slots, deviceId) }));
 
 // Drop selection ids and single-member groups left behind by delete, shelve, clear, resize or load
 function tidy(state) {
@@ -75,68 +96,112 @@ function baseReducer(state, action) {
 			return normalizeState(action.payload);
 
 		case "SET_RACK_NAME":
-			return { ...state, rackName: action.name };
+			if (!state.racks.some((r) => r.id === action.rackId)) return state;
+			return mapRacks(state, (r) =>
+				r.id === action.rackId ? { ...r, name: action.name } : r,
+			);
 
 		case "SET_RACK_SIZE": {
-			const { newSize } = action;
-			const resizedSlots = Array.from(
-				{ length: newSize },
-				(_, i) => state.slots[i] ?? mkSlot(),
-			);
+			const newSize = clampSize(action.newSize);
+			const rack = state.racks.find((r) => r.id === action.rackId);
+			if (!rack || newSize === null || newSize === rack.size) return state;
+			// Old slots in full, so devices below the new size are dropped, not orphaned
 			const { devices, slots } = rebuildPlacedDevices(
 				state.devices,
-				resizedSlots,
+				rack.slots,
 				newSize,
 			);
 			return {
-				...state,
-				rackSize: newSize,
+				...mapRacks(state, (r) =>
+					r.id === rack.id ? { ...r, size: newSize, slots } : r,
+				),
 				devices,
-				slots,
 				selId: state.selId && devices[state.selId] ? state.selId : null,
 			};
 		}
 
+		case "ADD_RACK":
+			return {
+				...state,
+				racks: [...state.racks, mkRack(`Rack ${state.racks.length + 1}`, 12)],
+			};
+
+		case "REMOVE_RACK": {
+			const rack = state.racks.find((r) => r.id === action.rackId);
+			if (!rack || state.racks.length < 2) return state;
+			const devices = { ...state.devices };
+			for (const slot of rack.slots)
+				for (const it of slot.items) delete devices[it.id]; // shelved items go with their shelf
+			return {
+				...state,
+				racks: state.racks.filter((r) => r !== rack),
+				devices,
+			};
+		}
+
+		case "SET_LAYOUT":
+			return ["side", "stack"].includes(action.layout) &&
+				action.layout !== state.layout
+				? { ...state, layout: action.layout }
+				: state;
+
 		case "SET_POWER_CAP":
 			return { ...state, powerCap: action.cap };
 
-		case "PLACE_DEVICE": {
-			const { device, rowIndex } = action;
-			if (
-				!device ||
-				state.devices[device.id] ||
-				!canPlace(state.slots, state.rackSize, rowIndex, device)
-			)
-				return state;
-			return {
-				...state,
-				devices: { ...state.devices, [device.id]: device },
-				slots: placeDeviceInSlots(state.slots, device, rowIndex),
-			};
-		}
+		case "PLACE_DEVICE":
+			return onRack(state, action.rackId, (state) => {
+				const { device, rowIndex } = action;
+				if (
+					!device ||
+					state.devices[device.id] ||
+					!canPlace(state.slots, state.rackSize, rowIndex, device)
+				)
+					return state;
+				return {
+					...state,
+					devices: { ...state.devices, [device.id]: device },
+					slots: placeDeviceInSlots(state.slots, device, rowIndex),
+				};
+			});
 
-		case "INSERT_DEVICE": {
-			// Place a new device on a full row, pushing rows down (or up when there is no room below)
-			const { device, rowIndex } = action;
-			if (!device || state.devices[device.id]) return state;
-			const slots = insertPlan(state, device, rowIndex);
-			if (!slots) return state;
-			return {
-				...state,
-				devices: { ...state.devices, [device.id]: device },
-				slots,
-			};
-		}
+		case "INSERT_DEVICE":
+			return onRack(state, action.rackId, (state) => {
+				// Place a new device on a full row, pushing rows down (or up when there is no room below)
+				const { device, rowIndex } = action;
+				if (!device || state.devices[device.id]) return state;
+				const slots = insertPlan(state, device, rowIndex);
+				if (!slots) return state;
+				return {
+					...state,
+					devices: { ...state.devices, [device.id]: device },
+					slots,
+				};
+			});
 
 		case "MOVE_DEVICES": {
-			// Atomic multi-move (swap, group move): all fit or nothing changes
-			const slots = planMoves(state, action.moves ?? []);
-			return slots ? { ...state, slots } : state;
+			// Atomic multi-move (swap, group move, into another rack): all fit or nothing changes.
+			// Planned in the target rack; moved ids then leave every other rack.
+			const moves = action.moves ?? [];
+			const view = rackView(state, action.rackId);
+			const slots = view && planMoves(view, moves);
+			if (!slots) return state;
+			return mapRacks(state, (r) =>
+				r.id === action.rackId
+					? { ...r, slots }
+					: {
+							...r,
+							slots: moves.reduce(
+								(acc, m) => removeDeviceFromSlots(acc, m.id),
+								r.slots,
+							),
+						},
+			);
 		}
 
 		case "GROUP_DEVICES": {
 			const ids = (action.ids ?? []).filter((id) => state.devices[id]);
 			if (ids.length < 2) return state;
+			if (new Set(ids.map((id) => rackOf(state, id))).size > 1) return state; // a group lives in one rack
 			const groupId = uid();
 			const devices = { ...state.devices };
 			for (const id of ids) devices[id] = { ...devices[id], groupId };
@@ -168,9 +233,8 @@ function baseReducer(state, action) {
 				shelved: [...(shelf.shelved ?? []), loose],
 			};
 			return {
-				...state,
+				...unplace(state, deviceId),
 				devices,
-				slots: removeDeviceFromSlots(state.slots, deviceId),
 				selId: state.selId === deviceId ? null : state.selId,
 			};
 		}
@@ -203,35 +267,34 @@ function baseReducer(state, action) {
 			};
 		}
 
-		case "MOVE_SHELF_ITEM_TO_RACK": {
-			const { deviceId, shelfId, rowIndex } = action;
-			const shelf = state.devices[shelfId];
-			const device = shelf?.shelved?.find((it) => it.id === deviceId);
-			if (!device || !canPlace(state.slots, state.rackSize, rowIndex, device))
-				return state;
-			return {
-				...state,
-				devices: {
-					...state.devices,
-					[device.id]: device,
-					[shelfId]: {
-						...shelf,
-						shelved: shelf.shelved.filter((it) => it.id !== deviceId),
+		case "MOVE_SHELF_ITEM_TO_RACK":
+			return onRack(state, action.rackId, (state) => {
+				const { deviceId, shelfId, rowIndex } = action;
+				const shelf = state.devices[shelfId];
+				const device = shelf?.shelved?.find((it) => it.id === deviceId);
+				if (!device || !canPlace(state.slots, state.rackSize, rowIndex, device))
+					return state;
+				return {
+					...state,
+					devices: {
+						...state.devices,
+						[device.id]: device,
+						[shelfId]: {
+							...shelf,
+							shelved: shelf.shelved.filter((it) => it.id !== deviceId),
+						},
 					},
-				},
-				slots: placeDeviceInSlots(state.slots, device, rowIndex),
-			};
-		}
+					slots: placeDeviceInSlots(state.slots, device, rowIndex),
+				};
+			});
 
 		case "DELETE_DEVICE": {
 			const { deviceId } = action;
-			const slots = removeDeviceFromSlots(state.slots, deviceId);
 			const devices = { ...state.devices };
 			delete devices[deviceId];
 			return {
-				...state,
+				...unplace(state, deviceId),
 				devices,
-				slots,
 				selId: state.selId === deviceId ? null : state.selId,
 				selIds: (state.selIds ?? []).filter((id) => id !== deviceId),
 			};
@@ -251,7 +314,10 @@ function baseReducer(state, action) {
 					: [...cur, deviceId];
 				return { ...state, selId: selIds.at(-1) ?? null, selIds };
 			}
-			const members = groupMembers(state, state.devices[deviceId]?.groupId);
+			const view = rackView(state, rackOf(state, deviceId));
+			const members = view
+				? groupMembers(view, state.devices[deviceId]?.groupId)
+				: [];
 			return {
 				...state,
 				selId: deviceId,
@@ -342,9 +408,11 @@ function baseReducer(state, action) {
 
 		case "CLEAR_RACK":
 			return {
-				...state,
+				...mapRacks(state, (r) => ({
+					...r,
+					slots: Array.from({ length: r.size }, mkSlot),
+				})),
 				devices: {},
-				slots: Array.from({ length: state.rackSize }, mkSlot),
 				selId: null,
 				selIds: [],
 			};
@@ -367,8 +435,8 @@ export const initHistory = (present) => ({
 
 // Typing in a field fires one action per keystroke: merge each run into one undo step
 function mergeKey(action) {
-	if (action.type === "SET_RACK_NAME" || action.type === "SET_POWER_CAP")
-		return action.type;
+	if (action.type === "SET_POWER_CAP") return action.type;
+	if (action.type === "SET_RACK_NAME") return action.type + action.rackId;
 	if (action.type === "UPDATE_DEVICE") return action.type + action.deviceId;
 	return null;
 }
