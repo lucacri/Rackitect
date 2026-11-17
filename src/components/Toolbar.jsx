@@ -6,7 +6,7 @@ import { RACK_SIZES } from "../data/constants";
 import { findRow, normalizeState } from "../state/helpers";
 
 export default function Toolbar() {
-	const { state, dispatch } = useApp();
+	const { state, dispatch, canUndo, canRedo } = useApp();
 	const { openDevModal, openConfirm } = useModal();
 	const toast = useToast();
 	const importRef = useRef(null);
@@ -22,12 +22,14 @@ export default function Toolbar() {
 			const r = findRow(state.slots, d.id);
 			return r >= 0 && r + d.uH > newSize;
 		});
-		const doResize = () => {
-			atRisk.forEach((d) =>
-				dispatch({ type: "DELETE_DEVICE", deviceId: d.id }),
-			);
-			dispatch({ type: "SET_RACK_SIZE", newSize });
-		};
+		const doResize = () =>
+			dispatch({
+				type: "BATCH",
+				actions: [
+					...atRisk.map((d) => ({ type: "DELETE_DEVICE", deviceId: d.id })),
+					{ type: "SET_RACK_SIZE", newSize },
+				],
+			});
 		if (atRisk.length) {
 			openConfirm(
 				`Shrinking to ${newSize}U will remove: ${atRisk.map((d) => d.name).join(", ")}. Continue?`,
@@ -114,6 +116,23 @@ export default function Toolbar() {
 				))}
 			</select>
 			<div className="tb-spacer" />
+			<button
+				className="btn btn-sm"
+				onClick={() => dispatch({ type: "UNDO" })}
+				disabled={!canUndo}
+				title="Undo (⌘Z / Ctrl+Z)"
+			>
+				↶ Undo
+			</button>
+			<button
+				className="btn btn-sm"
+				onClick={() => dispatch({ type: "REDO" })}
+				disabled={!canRedo}
+				title="Redo (⇧⌘Z / Ctrl+Y)"
+			>
+				↷ Redo
+			</button>
+			<div className="tb-sep" />
 
 			{/* Hidden file input for import */}
 			<input

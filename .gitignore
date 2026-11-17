@@ -4,3 +4,4 @@ dist
 *.local
 .pi-lens/
 .worktrees/
+.claude/worktrees/

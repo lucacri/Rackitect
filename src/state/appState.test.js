@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { RACK_SIZES } from "../data/constants";
-import { deviceFromLib, findRow, mkSlot, normalizeState } from "./helpers";
-import { INIT, reducer } from "./AppContext";
+import {
+	deviceFromLib,
+	findRow,
+	groupHue,
+	mkSlot,
+	normalizeState,
+	selectedIds,
+} from "./helpers";
+import { INIT, historyReducer, initHistory, reducer } from "./AppContext";
 
 const oneU = {
 	libId: "server",
@@ -460,5 +467,132 @@ describe("selection and group cleanup", () => {
 			slots: [{ items: [{ id: "sh", u: 6 }] }],
 		});
 		expect(s.devices.sh.shelved[0].groupId).toBeUndefined();
+	});
+});
+
+describe("undo history", () => {
+	const run = (h, ...actions) => actions.reduce(historyReducer, h);
+	const placeAct = (row) => ({
+		type: "PLACE_DEVICE",
+		device: deviceFromLib(oneU),
+		rowIndex: row,
+	});
+
+	it("undoes and redoes layout changes", () => {
+		let h = run(initHistory(INIT), placeAct(0), placeAct(1));
+		const id = h.present.slots[1].items[0].id;
+		h = run(h, { type: "DELETE_DEVICE", deviceId: id });
+		expect(h.present.devices[id]).toBeUndefined();
+		h = run(h, { type: "UNDO" });
+		expect(findRow(h.present.slots, id)).toBe(1);
+		h = run(h, { type: "REDO" });
+		expect(h.present.devices[id]).toBeUndefined();
+		h = run(h, { type: "UNDO" }, { type: "UNDO" }, { type: "UNDO" });
+		expect(h.present).toBe(INIT);
+		expect(run(h, { type: "UNDO" })).toBe(h); // nothing left
+	});
+
+	it("skips selection, no-ops and skipHistory; a new change drops redo", () => {
+		let h = run(initHistory(INIT), placeAct(0));
+		const id = h.present.slots[0].items[0].id;
+		h = run(
+			h,
+			{ type: "SELECT_DEVICE", deviceId: id },
+			placeAct(0), // occupied row: no-op
+			{ type: "LOAD", payload: h.present, skipHistory: true },
+		);
+		expect(h.past).toHaveLength(1);
+		h = run(h, { type: "UNDO" }, placeAct(3));
+		expect(h.future).toHaveLength(0);
+	});
+
+	it("merges typing runs and BATCH into one step; caps at 50", () => {
+		let h = run(
+			initHistory(INIT),
+			{ type: "SET_RACK_NAME", name: "a" },
+			{ type: "SET_RACK_NAME", name: "ab" },
+		);
+		expect(h.past).toHaveLength(1);
+		h = run(h, placeAct(0), placeAct(1));
+		const ids = [0, 1].map((r) => h.present.slots[r].items[0].id);
+		h = run(h, {
+			type: "BATCH",
+			actions: ids.map((deviceId) => ({ type: "DELETE_DEVICE", deviceId })),
+		});
+		expect(Object.keys(h.present.devices)).toHaveLength(0);
+		h = run(h, { type: "UNDO" });
+		expect(Object.keys(h.present.devices)).toHaveLength(2);
+
+		// Alternating types so runs don't merge: 120 steps, capped at 50
+		for (let i = 0; i < 60; i++)
+			h = run(
+				h,
+				{ type: "SET_POWER_CAP", cap: i },
+				{ type: "SET_RACK_NAME", name: `r${i}` },
+			);
+		expect(h.past).toHaveLength(50);
+	});
+
+	it("delete drops the id from the multi-selection", () => {
+		let s = place(INIT, oneU, 0);
+		s = place(s, oneU, 1);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[1].items[0].id];
+		s = reducer(s, { type: "SELECT_DEVICE", deviceId: a, additive: true });
+		s = reducer(s, { type: "SELECT_DEVICE", deviceId: b, additive: true });
+		s = reducer(s, { type: "DELETE_DEVICE", deviceId: a });
+		expect(s.selIds).toEqual([b]);
+		expect(selectedIds(s)).toEqual([b]);
+		expect(reducer(s, { type: "CLEAR_RACK" }).selIds).toEqual([]);
+	});
+
+	it("groupHue is stable and in range", () => {
+		expect(groupHue("abc")).toBe(groupHue("abc"));
+		expect(groupHue("abc")).not.toBe(groupHue("abd"));
+		for (const id of ["x", "lzq93k", "0".repeat(40)]) {
+			expect(groupHue(id)).toBeGreaterThanOrEqual(0);
+			expect(groupHue(id)).toBeLessThan(360);
+		}
+	});
+});
+
+describe("insert on a full row", () => {
+	it("moving a device up onto a full row reorders and reuses its old slot", async () => {
+		const { insertMoves } = await import("./helpers");
+		let s = place(INIT, oneU, 0);
+		s = place(s, oneU, 1);
+		s = place(s, oneU, 2);
+		s = place(s, oneU, 6);
+		const [a, b, c, far] = [0, 1, 2, 6].map((r) => s.slots[r].items[0].id);
+		s = reducer(s, {
+			type: "MOVE_DEVICES",
+			moves: insertMoves(s, [{ id: c, row: 0 }]),
+		});
+		expect([c, a, b, far].map((id) => findRow(s.slots, id))).toEqual([
+			0, 1, 2, 6,
+		]);
+	});
+
+	it("inserting a 2U library device pushes rows down by two, up to the gap", () => {
+		let s = place(INIT, oneU, 3);
+		s = place(s, oneU, 4);
+		s = place(s, oneU, 8);
+		const [a, b, far] = [3, 4, 8].map((r) => s.slots[r].items[0].id);
+		const dev = deviceFromLib(twoU);
+		s = reducer(s, { type: "INSERT_DEVICE", device: dev, rowIndex: 3 });
+		expect([dev.id, a, b, far].map((id) => findRow(s.slots, id))).toEqual([
+			3, 5, 6, 8,
+		]);
+	});
+
+	it("refuses an insert that would push devices off the bottom", () => {
+		let s = INIT;
+		for (let r = 0; r < 12; r++) s = place(s, oneU, r);
+		const before = s.slots;
+		s = reducer(s, {
+			type: "INSERT_DEVICE",
+			device: deviceFromLib(oneU),
+			rowIndex: 4,
+		});
+		expect(s.slots).toBe(before);
 	});
 });

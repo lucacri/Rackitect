@@ -379,3 +379,52 @@ export function swapMoves(state, aId, bId) {
 		{ id: top.id, row: bot.row + h(bot.id) - h(top.id) },
 	];
 }
+
+// Stable hue per group so neighbouring groups get distinct colours
+export function groupHue(groupId) {
+	let h = 0;
+	for (const ch of groupId) h = (h * 31 + ch.charCodeAt(0)) % 360;
+	return h;
+}
+
+// Selected rack device ids (multi-selection, else the single selection)
+export function selectedIds(state) {
+	const ids = state.selIds?.length
+		? state.selIds
+		: state.selId
+			? [state.selId]
+			: [];
+	return ids.filter((id) => state.devices[id]);
+}
+
+// Moves that put `moving` ([{ id, row }]) in place and push the devices from the
+// insert row down by the moving block's height, only as far as the first free gap
+// (so moving a device up reorders instead of leaving a hole).
+export function insertMoves(state, moving) {
+	const ids = new Set(moving.map((m) => m.id));
+	const uH = (id) => state.devices[id]?.uH ?? 1;
+	const top = Math.min(...moving.map((m) => m.row));
+	const h = Math.max(...moving.map((m) => m.row + uH(m.id))) - top;
+	let lifted = state.slots;
+	for (const id of ids) lifted = removeDeviceFromSlots(lifted, id);
+	const empty = (r) => !lifted[r].spanOf && lifted[r].items.length === 0;
+	let gap = state.rackSize; // no gap → push everything (overflow is refused later)
+	for (let r = top; r + h <= state.rackSize; r++) {
+		if (Array.from({ length: h }, (_, i) => empty(r + i)).every(Boolean)) {
+			gap = r;
+			break;
+		}
+	}
+	const pushed = Object.keys(state.devices)
+		.filter((id) => !ids.has(id))
+		.map((id) => ({ id, row: findRow(state.slots, id) }))
+		.filter((m) => m.row >= top && m.row < gap)
+		.map((m) => ({ ...m, row: m.row + h }));
+	return [...pushed, ...moving];
+}
+
+// Slots after inserting a not-yet-placed `device` at `row`, or null if it can't go there
+export function insertPlan(state, device, row) {
+	const s = { ...state, devices: { ...state.devices, [device.id]: device } };
+	return planMoves(s, insertMoves(s, [{ id: device.id, row }]));
+}

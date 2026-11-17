@@ -1134,6 +1134,24 @@ html, body, #root {
   scrollbar-color: var(--border) transparent;
 }
 
-/* Grouped devices: dashed inner edge so groups read as one unit */
-.dev-tile.in-group { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45); outline-style: dashed; }
+/* Grouped devices: per-group colour border + thick left bar so groups read as one unit */
+.dev-tile.in-group { box-shadow: inset 0 0 0 2px var(--grp), inset 6px 0 0 var(--grp); padding-left: 12px; }
 .dev-tile.in-group.is-selected { outline: 2px dashed #fff; }
+
+/* Drag: the tile a drop would swap with */
+.dev-tile.swap-target { outline: 2px dashed #f1c40f; outline-offset: -2px; filter: brightness(1.3); z-index: 3; }
+.dev-tile.swap-target::after {
+  content: "⇄";
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f1c40f;
+  text-shadow: 0 0 3px #000;
+}
+
+.btn:disabled { opacity: .35; cursor: default; }
+
+/* Drop on a full row: insert here and push the rows below down */
+.rack-row[data-drop-state="insert"] { box-shadow: inset 0 3px 0 #4aa3ff; background: #0d1a2a; }
