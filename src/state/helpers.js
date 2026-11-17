@@ -1,5 +1,6 @@
-import { CAT_COLORS, MAX_U, RACK_SIZES } from "../data/constants";
+import { CAT_COLORS, MAX_RACK, MAX_U } from "../data/constants";
 import BUILTIN_LIBRARY from "../data/library";
+import { clampSize, mkRack } from "./racks";
 
 let _uid = 0;
 export function uid() {
@@ -11,11 +12,10 @@ export function mkSlot() {
 }
 
 export const DEFAULT_STATE = {
-	rackName: "Rack 1",
-	rackSize: 12,
+	racks: [mkRack("Rack 1", 12)],
+	layout: "side", // "side" | "stack"
 	powerCap: 2000,
 	devices: {},
-	slots: Array.from({ length: 12 }, mkSlot),
 	selId: null,
 	selIds: [], // multi-selection (shift/cmd-click or a whole group)
 	libOverrides: {}, // libId -> override fields
@@ -91,7 +91,7 @@ function normalizeDevice(id, dev, rackSize) {
 
 // A library entry from an import or a save, with the same checks as a placed device
 function normalizeLib(libId, entry) {
-	const dev = normalizeDevice(libId, entry, Math.max(...RACK_SIZES));
+	const dev = normalizeDevice(libId, entry, MAX_RACK);
 	if (!dev) return null;
 	const { id: _id, notes: _n, shelved: _s, groupId: _g, ...lib } = dev;
 	return entry._isCustom ? { ...lib, _isCustom: true } : lib;
@@ -102,23 +102,11 @@ export function keepShelfCat(dev, cat) {
 	return dev.shelved?.length ? "shelf" : cat;
 }
 
-export function normalizeState(raw) {
-	if (!raw || typeof raw !== "object") return DEFAULT_STATE;
-
-	const rackSize = RACK_SIZES.includes(Number(raw.rackSize))
-		? Number(raw.rackSize)
-		: DEFAULT_STATE.rackSize;
-	const devices = Object.fromEntries(
-		Object.entries(
-			raw.devices && typeof raw.devices === "object" ? raw.devices : {},
-		)
-			.map(([id, dev]) => [id, normalizeDevice(id, dev, rackSize)])
-			.filter(([, dev]) => dev),
-	);
-
-	const rawSlots = Array.isArray(raw.slots) ? raw.slots : [];
+// Parse one rack's saved slots. `placedIds` is shared across racks, so an id
+// already placed in an earlier rack is dropped here.
+function normalizeSlots(rawSlots, rackSize, devices, placedIds) {
+	if (!Array.isArray(rawSlots)) rawSlots = [];
 	const slots = Array.from({ length: rackSize }, mkSlot);
-	const placedIds = new Set();
 
 	for (let index = 0; index < rackSize; index++) {
 		const rawSlot = rawSlots[index];
@@ -160,6 +148,43 @@ export function normalizeState(raw) {
 			usedU += u;
 		}
 	}
+	return slots;
+}
+
+export function normalizeState(raw) {
+	if (!raw || typeof raw !== "object") return DEFAULT_STATE;
+
+	const devices = Object.fromEntries(
+		Object.entries(
+			raw.devices && typeof raw.devices === "object" ? raw.devices : {},
+		)
+			.map(([id, dev]) => [id, normalizeDevice(id, dev, MAX_RACK)])
+			.filter(([, dev]) => dev),
+	);
+
+	// Old saves (rackName/rackSize/slots) load as one rack
+	const rawRacks =
+		raw.racks === undefined
+			? [{ name: raw.rackName, size: raw.rackSize, slots: raw.slots }]
+			: Array.isArray(raw.racks)
+				? raw.racks.filter((r) => r && typeof r === "object")
+				: [];
+	const placedIds = new Set();
+	const rackIds = new Set();
+	const racks = rawRacks.map((r, i) => {
+		const size = clampSize(r.size) ?? 12;
+		const id =
+			typeof r.id === "string" && r.id && !rackIds.has(r.id) ? r.id : uid();
+		rackIds.add(id);
+		return {
+			id,
+			name:
+				typeof r.name === "string" && r.name.trim() ? r.name : `Rack ${i + 1}`,
+			size,
+			slots: normalizeSlots(r.slots, size, devices, placedIds),
+		};
+	});
+	if (!racks.length) racks.push(mkRack("Rack 1", 12));
 
 	const placedDevices = Object.fromEntries(
 		Object.entries(devices).filter(([id]) => placedIds.has(id)),
@@ -181,14 +206,10 @@ export function normalizeState(raw) {
 
 	return {
 		...DEFAULT_STATE,
-		rackName:
-			typeof raw.rackName === "string" && raw.rackName.trim()
-				? raw.rackName
-				: DEFAULT_STATE.rackName,
-		rackSize,
+		racks,
+		layout: raw.layout === "stack" ? "stack" : "side",
 		powerCap: numberInRange(raw.powerCap, DEFAULT_STATE.powerCap, 0, 1000000),
 		devices: globallyUniqueDevices,
-		slots,
 		selId:
 			typeof raw.selId === "string" && globallyUniqueDevices[raw.selId]
 				? raw.selId

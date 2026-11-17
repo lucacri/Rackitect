@@ -32,7 +32,7 @@ export const PWR_TYPES = [
 
 export const UNITS_LBL = { 6: 'Full', 3: '½', 2: '⅓', 4: '⅔' }
 
-export const RACK_SIZES = [4, 8, 12, 16, 24, 42]
+export const MAX_RACK = 60
 
 export const CAT_ORDER = ['networking', 'compute', 'storage', 'power', 'kvm', 'unifi', 'misc', 'custom', 'shelf']
 

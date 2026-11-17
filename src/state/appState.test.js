@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { RACK_SIZES } from "../data/constants";
 import {
 	deviceFromLib,
 	findRow,
@@ -70,14 +69,15 @@ describe("normalizeState", () => {
 			],
 		});
 
-		expect(RACK_SIZES).toContain(normalized.rackSize);
-		expect(normalized.rackName).toBe("Rack 1");
+		const rack = normalized.racks[0];
+		expect(rack.size).toBe(60);
+		expect(rack.name).toBe("Rack 1");
 		expect(normalized.powerCap).toBe(2000);
 		expect(normalized.devices.ok.pwr.type).toBe("cord");
 		expect(normalized.devices.ok.pwr.w).toBe(15);
-		expect(normalized.slots).toHaveLength(normalized.rackSize);
-		expect(normalized.slots[0].items).toEqual([{ id: "ok", u: 6 }]);
-		expect(normalized.slots[1]).toEqual(mkSlot());
+		expect(rack.slots).toHaveLength(rack.size);
+		expect(rack.slots[0].items).toEqual([{ id: "ok", u: 6 }]);
+		expect(rack.slots[1]).toEqual(mkSlot());
 		expect(normalized.selId).toBeNull();
 	});
 
@@ -103,10 +103,11 @@ describe("normalizeState", () => {
 			],
 		});
 
-		expect(normalized.slots[0].items).toEqual([{ id: "first", u: 6 }]);
-		expect(normalized.slots[1]).toEqual(mkSlot());
-		expect(normalized.slots[2]).toEqual(mkSlot());
-		expect(normalized.slots[3]).toEqual(mkSlot());
+		const { slots } = normalized.racks[0];
+		expect(slots[0].items).toEqual([{ id: "first", u: 6 }]);
+		expect(slots[1]).toEqual(mkSlot());
+		expect(slots[2]).toEqual(mkSlot());
+		expect(slots[3]).toEqual(mkSlot());
 		expect(Object.keys(normalized.devices)).toEqual(["first"]);
 	});
 
