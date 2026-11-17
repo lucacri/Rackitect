@@ -79,6 +79,17 @@ function canRackDrop(state, devId, rowIndex, targetId) {
 }
 
 const tileUnder =(e) => e.target.closest?.("[data-dev-id]")?.dataset.devId;
+
+// Multi-U tiles overlay the span rows below them (.rack-span ignores the pointer),
+// so map the pointer to the rack row it is actually over.
+function pointerRow(e, rowIndex, devices) {
+	const tile = e.target.closest?.(".multi-u-tile");
+	const uH = devices[tile?.dataset.devId]?.uH ?? 1;
+	if (uH < 2) return rowIndex;
+	const { top, height } = tile.getBoundingClientRect();
+	const off = Math.floor(((e.clientY - top) / height) * uH);
+	return rowIndex + Math.min(uH - 1, Math.max(0, off));
+}
 const isAdditive = (e) => e.shiftKey || e.metaKey || e.ctrlKey;
 
 // ── ShelfItem ─────────────────────────────────────────────────────────────────
@@ -387,12 +398,13 @@ function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
 		e.preventDefault();
 		const dev = getPreviewDev();
 		if (!dev) return;
-		const same = drag.src === "rack" && drag.fromRow === rowIndex;
+		const row = pointerRow(e, rowIndex, state.devices);
+		const same = drag.src === "rack" && drag.fromRow === row;
 		const ok =
 			!same &&
 			(drag.src === "rack"
-				? canRackDrop(state, drag.devId, rowIndex, tileUnder(e))
-				: canPlace(state.slots, state.rackSize, rowIndex, dev));
+				? canRackDrop(state, drag.devId, row, tileUnder(e))
+				: canPlace(state.slots, state.rackSize, row, dev));
 		e.currentTarget.dataset.dropState = same ? "" : ok ? "valid" : "invalid";
 		e.dataTransfer.dropEffect = ok ? "copy" : "none";
 	}
@@ -407,31 +419,32 @@ function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
 		e.preventDefault();
 		e.currentTarget.dataset.dropState = "";
 		if (!drag) return;
+		const row = pointerRow(e, rowIndex, state.devices);
 
 		if (drag.src === "lib") {
 			const lib = getEffectiveLib(state).find((l) => l.libId === drag.libId);
 			if (!lib) return;
 			const dev = deviceFromLib(lib);
-			if (!canPlace(state.slots, state.rackSize, rowIndex, dev)) {
+			if (!canPlace(state.slots, state.rackSize, row, dev)) {
 				toast("Cannot place here");
 				return;
 			}
-			dispatch({ type: "PLACE_DEVICE", device: dev, rowIndex });
+			dispatch({ type: "PLACE_DEVICE", device: dev, rowIndex: row });
 		} else if (drag.src === "rack") {
-			if (drag.fromRow === rowIndex) return;
+			if (drag.fromRow === row) return;
 			const targetId = tileUnder(e);
-			if (!canRackDrop(state, drag.devId, rowIndex, targetId)) {
+			if (!canRackDrop(state, drag.devId, row, targetId)) {
 				toast("Cannot place here");
 				return;
 			}
 			dispatch({
 				type: "MOVE_DEVICES",
-				moves: rackDropMoves(state, drag.devId, rowIndex, targetId),
+				moves: rackDropMoves(state, drag.devId, row, targetId),
 			});
 		} else if (drag.src === "shelf") {
 			const hit = findShelved(state.devices, drag.devId);
 			if (!hit) return;
-			if (!canPlace(state.slots, state.rackSize, rowIndex, hit.dev)) {
+			if (!canPlace(state.slots, state.rackSize, row, hit.dev)) {
 				toast("Cannot place here");
 				return;
 			}
@@ -439,7 +452,7 @@ function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
 				type: "MOVE_SHELF_ITEM_TO_RACK",
 				shelfId: hit.shelfId,
 				deviceId: hit.dev.id,
-				rowIndex,
+				rowIndex: row,
 			});
 		}
 

@@ -52,7 +52,33 @@ function rebuildPlacedDevices(devices, slots, rackSize) {
 	return { devices: keptDevices, slots: rebuiltSlots };
 }
 
+// Drop selection ids and single-member groups left behind by delete, shelve, clear, resize or load
+function tidy(state) {
+	const live = (id) => !!state.devices[id];
+	const selIds = (state.selIds ?? []).filter(live);
+	const selId = live(state.selId) ? state.selId : (selIds.at(-1) ?? null);
+	const counts = {};
+	for (const d of Object.values(state.devices))
+		if (d.groupId) counts[d.groupId] = (counts[d.groupId] ?? 0) + 1;
+	const lone = Object.values(state.devices).filter(
+		(d) => d.groupId && counts[d.groupId] < 2,
+	);
+	if (
+		selIds.length === (state.selIds ?? []).length &&
+		selId === state.selId &&
+		!lone.length
+	)
+		return state;
+	const devices = { ...state.devices };
+	for (const { groupId: _g, ...rest } of lone) devices[rest.id] = rest;
+	return { ...state, devices, selId, selIds };
+}
+
 export function reducer(state, action) {
+	return tidy(baseReducer(state, action));
+}
+
+function baseReducer(state, action) {
 	switch (action.type) {
 		case "LOAD":
 			return normalizeState(action.payload);

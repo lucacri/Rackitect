@@ -56,6 +56,7 @@ function normalizeShelvedItems(shelfId, shelved) {
 		const id = String(item?.id ?? `${shelfId}-shelf-${index}`);
 		if (seen.has(id)) continue;
 		const normalized = normalizeDevice(id, item, 1);
+		delete normalized?.groupId; // shelved items are never grouped
 		if (!normalized || !canPlaceOnShelf(shelf, normalized)) continue;
 		shelf.shelved.push(normalized);
 		seen.add(id);
@@ -365,10 +366,16 @@ export function groupMoves(state, anchorId, toRow) {
 	}));
 }
 
-// Moves that exchange the rows of two rack devices
+// Moves that exchange the rows of two rack devices. The lower device takes the
+// upper one's top row and the upper one is bottom-aligned to the lower one's old
+// extent, so adjacent devices of different heights (1U + 2U) still swap.
 export function swapMoves(state, aId, bId) {
+	const [top, bot] = [aId, bId]
+		.map((id) => ({ id, row: findRow(state.slots, id) }))
+		.sort((x, y) => x.row - y.row);
+	const h = (id) => state.devices[id]?.uH ?? 1;
 	return [
-		{ id: aId, row: findRow(state.slots, bId) },
-		{ id: bId, row: findRow(state.slots, aId) },
+		{ id: bot.id, row: top.row },
+		{ id: top.id, row: bot.row + h(bot.id) - h(top.id) },
 	];
 }

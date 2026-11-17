@@ -396,3 +396,69 @@ describe("swap and group moves", () => {
 		expect(normalizeState(s).devices[b].groupId).toBeUndefined();
 	});
 });
+
+describe("selection and group cleanup", () => {
+	function twoSelected() {
+		let s = place(INIT, oneU, 0);
+		s = place(s, oneU, 1);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[1].items[0].id];
+		s = reducer(s, { type: "SELECT_DEVICE", deviceId: a });
+		s = reducer(s, { type: "SELECT_DEVICE", deviceId: b, additive: true });
+		return { s, a, b };
+	}
+
+	it("drops deleted ids from selIds and falls back selId to a live one", () => {
+		const { s, a, b } = twoSelected();
+		const next = reducer(s, { type: "DELETE_DEVICE", deviceId: b });
+		expect(next.selIds).toEqual([a]);
+		expect(next.selId).toBe(a);
+	});
+
+	it("clears selIds on CLEAR_RACK", () => {
+		const { s } = twoSelected();
+		expect(reducer(s, { type: "CLEAR_RACK" }).selIds).toEqual([]);
+	});
+
+	it("drops shelved ids from selIds", () => {
+		let { s, a, b } = twoSelected();
+		s = place(s, shelfLib, 5);
+		const shelfId = s.slots[5].items[0].id;
+		s = reducer(s, { type: "MOVE_DEVICE_TO_SHELF", deviceId: b, shelfId });
+		expect(s.selIds).toEqual([a]);
+	});
+
+	it("removes the group tag when only one member is left", () => {
+		const { s: base, a, b } = twoSelected();
+		let s = reducer(base, { type: "GROUP_DEVICES", ids: [a, b] });
+		s = reducer(s, { type: "DELETE_DEVICE", deviceId: b });
+		expect(s.devices[a].groupId).toBeUndefined();
+	});
+
+	it("leaves state untouched when there is nothing to tidy", () => {
+		const s = place(INIT, oneU, 0);
+		expect(reducer(s, { type: "SET_RACK_NAME", name: s.rackName }).devices).toBe(
+			s.devices,
+		);
+	});
+
+	it("swaps an adjacent 1U and 2U device", async () => {
+		const { swapMoves } = await import("./helpers");
+		let s = place(INIT, oneU, 0);
+		s = place(s, twoU, 1);
+		const [a, b] = [s.slots[0].items[0].id, s.slots[1].items[0].id];
+		s = reducer(s, { type: "MOVE_DEVICES", moves: swapMoves(s, a, b) });
+		expect(findRow(s.slots, b)).toBe(0);
+		expect(findRow(s.slots, a)).toBe(2);
+	});
+
+	it("strips groupId from shelved items on load", () => {
+		const s = normalizeState({
+			rackSize: 12,
+			devices: {
+				sh: { ...shelfLib, shelved: [{ ...oneU, id: "x", groupId: "g1" }] },
+			},
+			slots: [{ items: [{ id: "sh", u: 6 }] }],
+		});
+		expect(s.devices.sh.shelved[0].groupId).toBeUndefined();
+	});
+});
