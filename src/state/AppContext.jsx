@@ -473,13 +473,15 @@ export function historyReducer(h, action) {
 	};
 }
 
-const STORAGE_KEY = "rackitect_v1";
+// v2 = multi-rack format. Old builds keep v1, so a stale or rolled-back bundle can't wipe a v2 save.
+const STORAGE_KEY = "rackitect_v2";
+const OLD_STORAGE_KEY = "rackitect_v1";
 
 // Saved rack, or INIT. An unreadable save is copied aside so the next save can't destroy it.
 export function loadSaved() {
 	let raw = null;
 	try {
-		raw = localStorage.getItem(STORAGE_KEY);
+		raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(OLD_STORAGE_KEY);
 		return raw ? normalizeState(JSON.parse(raw)) : INIT;
 	} catch (err) {
 		console.error("Rackitect: saved rack unreadable, kept a copy", err);

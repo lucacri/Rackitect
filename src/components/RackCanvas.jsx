@@ -20,6 +20,7 @@ import {
 import {
 	clampSize,
 	crossRackPlan,
+	rackDeviceCount,
 	rackOf,
 	rackView,
 	shrinkLoss,
@@ -471,7 +472,7 @@ function RackRow({ rowIndex, slot, devices, selIds, dimIds, onSelect }) {
 
 // ── RackHeader ────────────────────────────────────────────────────────────────
 
-function RackHeader({ rack, view }) {
+function RackHeader({ rack }) {
 	const { state, dispatch } = useApp();
 	const { openConfirm } = useModal();
 	// Size applies on Enter or blur, so typing "20" never passes through 2U
@@ -505,7 +506,7 @@ function RackHeader({ rack, view }) {
 	}
 
 	function handleRemove() {
-		const n = view.slots.reduce((sum, sl) => sum + sl.items.length, 0);
+		const n = rackDeviceCount(state, rack.id);
 		const remove = () => dispatch({ type: "REMOVE_RACK", rackId: rack.id });
 		if (!n) return remove();
 		openConfirm(
@@ -720,7 +721,7 @@ function RackPanel({ rack, selIds, onSelect }) {
 
 	return (
 		<section className="rack-card" aria-label={rack.name}>
-			<RackHeader rack={rack} view={view} />
+			<RackHeader rack={rack} />
 			<div className="rack-outer">
 				<div className="u-col">
 					{Array.from({ length: rack.size }, (_, i) => (

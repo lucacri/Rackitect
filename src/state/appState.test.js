@@ -612,12 +612,20 @@ describe("loadSaved (refresh keeps the rack)", () => {
 		const restored = loadSaved();
 		expect(Object.keys(restored.devices)).toEqual(Object.keys(saved.devices));
 
-		globalThis.localStorage = fakeStorage({ rackitect_v1: "{broken" });
+		globalThis.localStorage = fakeStorage({ rackitect_v2: "{broken" });
 		expect(loadSaved()).toBe(INIT);
 		const copies = Object.keys(localStorage.m).filter((k) =>
-			k.startsWith("rackitect_v1_corrupt_"),
+			k.startsWith("rackitect_v2_corrupt_"),
 		);
 		expect(copies).toHaveLength(1);
+
+		// new key wins; old key (left for old builds) is only a fallback
+		const newer = place(INIT, oneU, 5);
+		globalThis.localStorage = fakeStorage({
+			rackitect_v1: JSON.stringify(saved),
+			rackitect_v2: JSON.stringify(newer),
+		});
+		expect(Object.keys(loadSaved().devices)).toEqual(Object.keys(newer.devices));
 		delete globalThis.localStorage;
 	});
 });

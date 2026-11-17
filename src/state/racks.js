@@ -62,12 +62,26 @@ export function crossRackPlan(state, fromRackId, toRackId, dev, row) {
 	if (!src || !dst || findRow(src.slots, dev.id) < 0) return null;
 	const grouped = groupMembers(src, dev.groupId).length > 1;
 	const r = clampDropRow({ ...src, rackSize: dst.rackSize }, dev, row);
-	const moves = grouped ? groupMoves(src, dev.id, r) : [{ id: dev.id, row: r }];
+	const at = (top) => (grouped ? groupMoves(src, dev.id, top) : [{ id: dev.id, row: top }]);
+	const moves = at(r);
 	if (planMoves(dst, moves)) return { kind: "move", moves, row: r };
-	const down = insertMoves(dst, moves);
-	if (planMoves(dst, down)) return { kind: "insert", moves: down, row: r };
+	// like dropPlan: on a multi-U device's lower row, also try inserting at its top
+	const span = dst.slots[r]?.spanOf;
+	for (const top of span ? [r, r - span.offset] : [r]) {
+		const down = insertMoves(dst, at(top));
+		if (planMoves(dst, down)) return { kind: "insert", moves: down, row: top };
+	}
 	const up = insertMoves(dst, moves, true);
 	return planMoves(dst, up) ? { kind: "insertUp", moves: up, row: r } : null;
+}
+
+// Devices lost by removing this rack: its rack-mounted ones plus everything on their shelves
+export function rackDeviceCount(state, rackId) {
+	const view = rackView(state, rackId);
+	if (!view) return 0;
+	return view.slots
+		.flatMap((sl) => sl.items)
+		.reduce((sum, it) => sum + 1 + (state.devices[it.id]?.shelved?.length ?? 0), 0);
 }
 
 // Devices in this rack that would be dropped by resizing it to `newSize`

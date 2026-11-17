@@ -1,5 +1,5 @@
 import { useApp } from "../state/AppContext";
-import { useModal } from "../state/UIContext";
+import { useModal, useToast } from "../state/UIContext";
 import {
 	CAT_COLORS,
 	CAT_NAMES,
@@ -8,7 +8,7 @@ import {
 	PWR_TYPES,
 } from "../data/constants";
 import { rackSummary, findRow, uid } from "../state/helpers";
-import { rackView } from "../state/racks";
+import { rackOf, rackView } from "../state/racks";
 
 // ── Rack summary view (nothing selected) ─────────────────────────────────────
 
@@ -365,7 +365,8 @@ function DeviceDetail({ device }) {
 // ── Multi-selection: group / ungroup ─────────────────────────────────────────
 
 function MultiSelection({ devices }) {
-	const { dispatch } = useApp();
+	const { state, dispatch } = useApp();
+	const toast = useToast();
 	const groupId = devices[0].groupId;
 	const isOneGroup = !!groupId && devices.every((d) => d.groupId === groupId);
 
@@ -407,10 +408,12 @@ function MultiSelection({ devices }) {
 						className="btn btn-sm"
 						style={{ width: "100%" }}
 						onClick={() =>
-							dispatch({
-								type: "GROUP_DEVICES",
-								ids: devices.map((d) => d.id),
-							})
+							new Set(devices.map((d) => rackOf(state, d.id))).size > 1
+								? toast("Groups must be in one rack")
+								: dispatch({
+										type: "GROUP_DEVICES",
+										ids: devices.map((d) => d.id),
+									})
 						}
 					>
 						Group as one unit

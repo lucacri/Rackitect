@@ -5,6 +5,7 @@ import {
 	crossRackPlan,
 	firstFreeSpot,
 	mkRack,
+	rackDeviceCount,
 	rackOf,
 	shrinkLoss,
 	rackView,
@@ -185,6 +186,28 @@ describe("racks", () => {
 					{ id: "t", row: 5 },
 				]),
 			);
+		});
+
+		it("inserts at a multi-U device's top when dropped on its lower row", () => {
+			const s = setup(
+				{ a: oneU, f0: oneU, f1: oneU, f2: oneU, t: twoU },
+				{ a: ["r1", 0], f0: ["r2", 0], f1: ["r2", 1], f2: ["r2", 2], t: ["r2", 3] },
+			);
+			const p = crossRackPlan(s, "r1", "r2", s.devices.a, 4);
+			expect(p).toMatchObject({ kind: "insert", row: 3 });
+			expect(p.moves).toEqual(
+				expect.arrayContaining([
+					{ id: "a", row: 3 },
+					{ id: "t", row: 4 },
+				]),
+			);
+		});
+
+		it("counts shelved items as lost when removing a rack", () => {
+			const s = setup({ sh: shelfLib, a: oneU }, { sh: ["r2", 0], a: ["r2", 3] });
+			s.devices.sh.shelved = [{ id: "x" }, { id: "y" }, { id: "z" }];
+			expect(rackDeviceCount(s, "r2")).toBe(5);
+			expect(rackDeviceCount(s, "r1")).toBe(0);
 		});
 
 		it("refuses a group that does not fit", () => {
