@@ -6,7 +6,7 @@ import { RACK_SIZES } from "../data/constants";
 import { findRow, normalizeState } from "../state/helpers";
 
 export default function Toolbar() {
-	const { state, dispatch, canUndo, canRedo } = useApp();
+	const { state, dispatch, canUndo, canRedo, saveError } = useApp();
 	const { openDevModal, openConfirm } = useModal();
 	const toast = useToast();
 	const importRef = useRef(null);
@@ -116,6 +116,17 @@ export default function Toolbar() {
 				))}
 			</select>
 			<div className="tb-spacer" />
+			<span
+				className={"tb-save" + (saveError ? " is-error" : "")}
+				role="status"
+				title={
+					saveError
+						? "Browser storage refused the save — export to keep your work"
+						: "Every change is saved in this browser"
+				}
+			>
+				{saveError ? "⚠ Not saved — export" : "✓ Saved"}
+			</span>
 			<button
 				className="btn btn-sm"
 				onClick={() => dispatch({ type: "UNDO" })}

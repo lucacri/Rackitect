@@ -596,3 +596,32 @@ describe("insert on a full row", () => {
 		expect(s.slots).toBe(before);
 	});
 });
+
+describe("loadSaved (refresh keeps the rack)", () => {
+	function fakeStorage(init = {}) {
+		const m = { ...init };
+		return {
+			m,
+			getItem: (k) => m[k] ?? null,
+			setItem: (k, v) => {
+				m[k] = String(v);
+			},
+		};
+	}
+
+	it("restores the saved rack and keeps an unreadable save aside", async () => {
+		const { loadSaved } = await import("./AppContext");
+		const saved = place(INIT, oneU, 2);
+		globalThis.localStorage = fakeStorage({ rackitect_v1: JSON.stringify(saved) });
+		const restored = loadSaved();
+		expect(Object.keys(restored.devices)).toEqual(Object.keys(saved.devices));
+
+		globalThis.localStorage = fakeStorage({ rackitect_v1: "{broken" });
+		expect(loadSaved()).toBe(INIT);
+		const copies = Object.keys(localStorage.m).filter((k) =>
+			k.startsWith("rackitect_v1_corrupt_"),
+		);
+		expect(copies).toHaveLength(1);
+		delete globalThis.localStorage;
+	});
+});

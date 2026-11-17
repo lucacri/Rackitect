@@ -3,7 +3,7 @@ import {
 	useContext,
 	useReducer,
 	useEffect,
-	useRef,
+	useState,
 } from "react";
 import {
 	canPlace,
@@ -455,41 +455,44 @@ export function historyReducer(h, action) {
 	};
 }
 
+const STORAGE_KEY = "rackitect_v1";
+
+// Saved rack, or INIT. An unreadable save is copied aside so the next save can't destroy it.
+export function loadSaved() {
+	let raw = null;
+	try {
+		raw = localStorage.getItem(STORAGE_KEY);
+		return raw ? normalizeState(JSON.parse(raw)) : INIT;
+	} catch (err) {
+		console.error("Rackitect: saved rack unreadable, kept a copy", err);
+		try {
+			if (raw) localStorage.setItem(`${STORAGE_KEY}_corrupt_${Date.now()}`, raw);
+		} catch (_) {}
+		return INIT;
+	}
+}
+
 // ── Context + Provider ────────────────────────────────────────────────────────
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
-	const [history, dispatch] = useReducer(historyReducer, INIT, initHistory);
+	// Load synchronously so the first render (and first save) is the saved rack, never blank INIT
+	const [history, dispatch] = useReducer(historyReducer, null, () =>
+		initHistory(loadSaved()),
+	);
 	const state = history.present;
+	const [saveError, setSaveError] = useState(false);
 
-	// Skip the very first save: on mount both effects fire in the same flush,
-	// so the save effect would run with the blank INIT state and overwrite
-	// localStorage before the load effect dispatches the persisted data.
-	const isMounted = useRef(false);
-
-	// Load persisted state on mount
+	// Persist on every state change
 	useEffect(() => {
 		try {
-			const saved = localStorage.getItem("rackitect_v1");
-			if (!saved) return;
-			dispatch({
-				type: "LOAD",
-				payload: JSON.parse(saved),
-				skipHistory: true,
-			});
-		} catch (_) {}
-	}, []);
-
-	// Persist on every state change — but skip the initial render
-	useEffect(() => {
-		if (!isMounted.current) {
-			isMounted.current = true;
-			return;
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+			setSaveError(false);
+		} catch (err) {
+			console.error("Rackitect: could not save to localStorage", err);
+			setSaveError(true);
 		}
-		try {
-			localStorage.setItem("rackitect_v1", JSON.stringify(state));
-		} catch (_) {}
 	}, [state]);
 
 	return (
