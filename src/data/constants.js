@@ -20,6 +20,16 @@ export const PORT_LBL = {
   audio: '3.5mm', ipmi: 'IPMI',
 }
 
+export const PORT_TYPES = Object.keys(PORT_LBL)
+
+export const PWR_TYPES = [
+  { key: 'passive', label: 'Passive' },
+  { key: 'poe', label: 'PoE' },
+  { key: 'brick', label: 'Brick' },
+  { key: 'cord', label: 'Outlet' },
+  { key: 'usb', label: 'USB' },
+]
+
 export const UNITS_LBL = { 6: 'Full', 3: '½', 2: '⅓', 4: '⅔' }
 
 export const RACK_SIZES = [4, 8, 12, 16, 24, 42]

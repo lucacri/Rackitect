@@ -25,13 +25,11 @@ export function useDrag() {
 const ModalCtx = createContext(null);
 
 export function ModalProvider({ children }) {
-	const [devModal, setDevModal] = useState(null); // null | { prefill, mode: 'lib'|'instance' }
+	const [devModal, setDevModal] = useState(null); // null | { prefill } (create or edit a library entry)
 	const [confirmModal, setConfirmModal] = useState(null); // null | { msg, cb }
 
-	// mode='lib'      → create/edit library entry (default)
-	// mode='instance' → edit only this placed device, don't touch the library
 	const openDevModal = useCallback(
-		(prefill, mode = "lib") => setDevModal({ prefill: prefill ?? null, mode }),
+		(prefill) => setDevModal({ prefill: prefill ?? null }),
 		[],
 	);
 	const closeDevModal = useCallback(() => setDevModal(null), []);

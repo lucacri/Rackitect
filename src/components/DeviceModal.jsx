@@ -1,29 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { useApp } from "../state/AppContext";
 import { useModal } from "../state/UIContext";
-import { CAT_ORDER, CAT_NAMES, CAT_COLORS, PORT_LBL } from "../data/constants";
+import {
+	CAT_ORDER,
+	CAT_NAMES,
+	CAT_COLORS,
+	PORT_LBL,
+	PORT_TYPES,
+	PWR_TYPES,
+} from "../data/constants";
 import { uid } from "../state/helpers";
-
-const PWR_TYPES = [
-	{ key: "passive", label: "Passive" },
-	{ key: "poe", label: "PoE" },
-	{ key: "brick", label: "Brick" },
-	{ key: "cord", label: "Outlet" },
-	{ key: "usb", label: "USB" },
-];
-
-const PORT_TYPES = [
-	"ethernet",
-	"sfp",
-	"qsfp",
-	"usb-a",
-	"usb-c",
-	"hdmi",
-	"dp",
-	"serial",
-	"audio",
-	"ipmi",
-];
 
 const SIZE_OPTS = [
 	{ u: 6, uH: 1, label: "Full (1U)" },
@@ -39,7 +25,7 @@ function mkPort() {
 	return { _key: uid(), t: "ethernet", n: 1, s: "" };
 }
 
-function blankForm(prefill, mode) {
+function blankForm(prefill) {
 	if (!prefill) {
 		return {
 			name: "",
@@ -51,9 +37,7 @@ function blankForm(prefill, mode) {
 			pwrW: 0,
 			ports: [],
 			isNew: true,
-			isInstance: false,
 			libId: null,
-			instanceId: null,
 		};
 	}
 	return {
@@ -66,8 +50,6 @@ function blankForm(prefill, mode) {
 		pwrW: prefill.pwr?.w ?? 0,
 		ports: (prefill.ports ?? []).map((p) => ({ ...p, _key: uid() })),
 		isNew: false,
-		isInstance: mode === "instance",
-		instanceId: mode === "instance" ? prefill.id : null,
 		libId: prefill.libId ?? null,
 		isBuiltin: !!prefill.libId && !prefill._isCustom,
 	};
@@ -82,7 +64,7 @@ export default function DeviceModal() {
 
 	useEffect(() => {
 		if (devModal) {
-			setForm(blankForm(devModal.prefill, devModal.mode));
+			setForm(blankForm(devModal.prefill));
 			dialogRef.current?.showModal();
 		} else {
 			dialogRef.current?.close();
@@ -121,21 +103,7 @@ export default function DeviceModal() {
 		const pwr = { type: form.pwrType, conn: form.pwrConn, w: +form.pwrW };
 		const ports = form.ports.map(({ _key, ...rest }) => rest);
 
-		if (form.isInstance) {
-			// Edit only this placed device — library stays untouched
-			dispatch({
-				type: "UPDATE_DEVICE",
-				deviceId: form.instanceId,
-				fields: {
-					name: form.name.trim(),
-					cat: form.cat,
-					u: form.u,
-					uH: form.uH,
-					pwr,
-					ports,
-				},
-			});
-		} else if (form.isNew) {
+		if (form.isNew) {
 			// Create new library entry
 			const entry = {
 				libId: uid(),
@@ -188,11 +156,7 @@ export default function DeviceModal() {
 			>
 				<div className="modal-header">
 					<h2 className="modal-title">
-						{form?.isNew
-							? "New device"
-							: form?.isInstance
-								? "Edit this device"
-								: "Edit library entry"}
+						{form?.isNew ? "New device" : "Edit library entry"}
 					</h2>
 					<button
 						type="button"
@@ -372,11 +336,7 @@ export default function DeviceModal() {
 						Cancel
 					</button>
 					<button type="submit" className="btn btn-primary">
-						{form?.isNew
-							? "Add to library"
-							: form?.isInstance
-								? "Save device"
-								: "Save library entry"}
+						{form?.isNew ? "Add to library" : "Save library entry"}
 					</button>
 				</div>
 			</form>

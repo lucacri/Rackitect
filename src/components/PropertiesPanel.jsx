@@ -1,16 +1,13 @@
 import { useApp } from "../state/AppContext";
 import { useModal } from "../state/UIContext";
-import { CAT_COLORS, CAT_NAMES, PORT_LBL } from "../data/constants";
+import {
+	CAT_COLORS,
+	CAT_NAMES,
+	PORT_LBL,
+	PORT_TYPES,
+	PWR_TYPES,
+} from "../data/constants";
 import { rackSummary, findRow, uid } from "../state/helpers";
-
-const PWR_TYPES = ["passive", "cord", "poe", "brick", "usb"];
-const PWR_LABELS = {
-	passive: "Passive",
-	cord: "Outlet",
-	poe: "PoE",
-	brick: "Brick",
-	usb: "USB",
-};
 
 // ── Rack summary view (nothing selected) ─────────────────────────────────────
 
@@ -204,7 +201,7 @@ function DeviceDetail({ device }) {
 			<div className="props-field">
 				<label className="props-field-label">Power</label>
 				<div className="props-pwr-grid">
-					{PWR_TYPES.map((pt) => (
+					{PWR_TYPES.map(({ key: pt, label }) => (
 						<button
 							key={pt}
 							className={
@@ -212,7 +209,7 @@ function DeviceDetail({ device }) {
 							}
 							onClick={() => setPwr({ type: pt })}
 						>
-							{PWR_LABELS[pt]}
+							{label}
 						</button>
 					))}
 				</div>
@@ -263,18 +260,7 @@ function DeviceDetail({ device }) {
 							onChange={(e) => updatePort(i, "t", e.target.value)}
 							style={{ flex: 1, fontSize: 11, padding: "3px 5px" }}
 						>
-							{[
-								"ethernet",
-								"sfp",
-								"qsfp",
-								"usb-a",
-								"usb-c",
-								"hdmi",
-								"dp",
-								"serial",
-								"audio",
-								"ipmi",
-							].map((pt) => (
+							{PORT_TYPES.map((pt) => (
 								<option key={pt} value={pt}>
 									{PORT_LBL[pt] ?? pt}
 								</option>
