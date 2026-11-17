@@ -428,3 +428,51 @@ export function insertPlan(state, device, row) {
 	const s = { ...state, devices: { ...state.devices, [device.id]: device } };
 	return planMoves(s, insertMoves(s, [{ id: device.id, row }]));
 }
+
+// Moving a block down: the devices it passes over slide up into the space it left.
+function pullUpMoves(state, moving) {
+	const ids = new Set(moving.map((m) => m.id));
+	const uH = (id) => state.devices[id]?.uH ?? 1;
+	const top = Math.min(...moving.map((m) => m.row));
+	const h = Math.max(...moving.map((m) => m.row + uH(m.id))) - top;
+	const oldTop = Math.min(...moving.map((m) => findRow(state.slots, m.id)));
+	if (oldTop < 0 || top <= oldTop) return null;
+	const pulled = Object.keys(state.devices)
+		.filter((id) => !ids.has(id))
+		.map((id) => ({ id, row: findRow(state.slots, id) }))
+		.filter((m) => m.row >= oldTop + h && m.row < top + h)
+		.map((m) => ({ ...m, row: m.row - h }));
+	return [...pulled, ...moving];
+}
+
+/**
+ * What happens if `dev` is dropped with its top on `row`. `dev` may be off the
+ * rack (library or shelf item). Grouped rack devices bring their group.
+ * Tries, in order: a plain move; when moving down, sliding the passed-over
+ * devices up (also one row lower, for landing on the top half of a taller
+ * device); inserting and pushing devices down. With `swapWith` it only swaps.
+ * Returns { kind: "move"|"reorder"|"insert"|"swap", moves, row } or null.
+ */
+export function dropPlan(state, dev, row, swapWith = null) {
+	const s = state.devices[dev.id]
+		? state
+		: { ...state, devices: { ...state.devices, [dev.id]: dev } };
+	const fromRow = findRow(s.slots, dev.id);
+	const grouped = fromRow >= 0 && groupMembers(s, dev.groupId).length > 1;
+	const at = (r) => (grouped ? groupMoves(s, dev.id, r) : [{ id: dev.id, row: r }]);
+	const fits = (moves) => moves && planMoves(s, moves);
+
+	if (swapWith) {
+		if (grouped || fromRow < 0 || swapWith === dev.id) return null;
+		if (groupMembers(s, s.devices[swapWith]?.groupId).length > 1) return null;
+		const moves = swapMoves(s, dev.id, swapWith);
+		return fits(moves) ? { kind: "swap", moves, row } : null;
+	}
+	if (fits(at(row))) return { kind: "move", moves: at(row), row };
+	for (const r of [row, row + 1]) {
+		const moves = pullUpMoves(s, at(r));
+		if (fits(moves)) return { kind: "reorder", moves, row: r };
+	}
+	const moves = insertMoves(s, at(row));
+	return fits(moves) ? { kind: "insert", moves, row } : null;
+}

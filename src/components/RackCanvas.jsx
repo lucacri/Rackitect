@@ -1,22 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../state/AppContext";
 import { useDrag, useModal, useToast } from "../state/UIContext";
 import { CAT_COLORS, MAX_U, PORT_LBL } from "../data/constants";
 import {
-	canPlace,
 	canPlaceOnShelf,
 	findRow,
 	deviceFromLib,
 	getEffectiveLib,
 	groupHue,
 	groupMembers,
-	groupMoves,
-	insertMoves,
-	insertPlan,
-	planMoves,
+	dropPlan,
 	pwrBadge,
 	selectedIds,
-	swapMoves,
 } from "../state/helpers";
 
 // All port groups as a compact string: "24×RJ45 1G · 4×SFP+"
@@ -58,58 +53,24 @@ function resolveDragDev(drag, state) {
 	return state.devices[drag.devId] ?? null;
 }
 
-/**
- * Moves for dropping a rack device on `row` (grouped devices move together):
- * a plain move if it fits; otherwise an insert that pushes the devices from `row`
- * down; with `swap` (Option/Alt held) it trades places with the device under
- * the cursor (or the row's only device) instead. Null when nothing applies.
- */
-function rackDropMoves(state, devId, row, targetId, swap = false) {
-	const dev = state.devices[devId];
-	if (!dev) return null;
-	const moving =
-		groupMembers(state, dev.groupId).length > 1
-			? groupMoves(state, devId, row)
-			: [{ id: devId, row }];
-	if (planMoves(state, moving)) return moving;
-	if (!swap) return insertMoves(state, moving);
-	if (moving.length > 1) return null;
-	const others = state.slots[row].items.filter((it) => it.id !== devId);
-	const tid = targetId ?? (others.length === 1 ? others[0].id : null);
-	if (!tid || tid === devId) return null;
-	if (groupMembers(state, state.devices[tid]?.groupId).length > 1) return null;
-	return swapMoves(state, devId, tid);
-}
-
-function canRackDrop(state, devId, row, targetId, swap) {
-	const moves = rackDropMoves(state, devId, row, targetId, swap);
-	return !!moves && !!planMoves(state, moves);
-}
-
-
 const tileUnder = (e) => e.target.closest?.("[data-dev-id]")?.dataset.devId;
 
-// Multi-U tiles overlay the span rows below them (.rack-span ignores the pointer),
-// so map the pointer to the rack row it is actually over.
-function pointerRow(e, rowIndex, devices) {
-	const tile = e.target.closest?.(".multi-u-tile");
-	const uH = devices[tile?.dataset.devId]?.uH ?? 1;
-	if (uH < 2) return rowIndex;
+// Which of the device's rows the pointer grabbed, so it lands where it looks like it will
+function grabRow(e, device) {
+	const tile = e.currentTarget.closest(".dev-tile") ?? e.currentTarget;
 	const { top, height } = tile.getBoundingClientRect();
-	const off = Math.floor(((e.clientY - top) / height) * uH);
-	return rowIndex + Math.min(uH - 1, Math.max(0, off));
+	const r = Math.floor(((e.clientY - top) / height) * device.uH);
+	return Math.max(0, Math.min(device.uH - 1, r));
 }
-const isAdditive = (e) => e.shiftKey || e.metaKey || e.ctrlKey;
 
-// Highlight the tile a rack drop would swap with (null clears)
-function markSwapTarget(id) {
-	for (const el of document.querySelectorAll(".swap-target"))
-		if (el.dataset.devId !== id) el.classList.remove("swap-target");
-	if (id)
-		document
-			.querySelector(`[data-dev-id="${id}"]`)
-			?.classList.add("swap-target");
-}
+const DROP_LABEL = {
+	move: "Move here",
+	reorder: "Move here — others slide up",
+	insert: "Insert — others pushed down",
+	swap: "Swap",
+};
+
+const isAdditive = (e) => e.shiftKey || e.metaKey || e.ctrlKey;
 
 // Group outline for a tile; a lone leftover of a group is not shown as grouped
 function groupLook(state, device) {
@@ -142,7 +103,6 @@ function ShelfItem({ dev, shelfId, dispatch }) {
 	}
 	function handleDragEnd(e) {
 		if (e.target) e.target.style.opacity = "";
-		markSwapTarget(null);
 		setDrag(null);
 	}
 
@@ -195,8 +155,7 @@ function ShelfInner({ shelf }) {
 	}
 
 	function handleDragOver(e) {
-		e.preventDefault();
-		e.stopPropagation();
+		e.preventDefault(); // bubbles on purpose: the rack clears its drop preview
 		const ignoreId =
 			drag?.src === "shelf" && drag.shelfId === shelf.id ? drag.devId : null;
 		const ok = dropOk(ignoreId);
@@ -308,7 +267,7 @@ function ShelfTile({ device, units, isSelected, isMultiU, onSelect }) {
 
 	function handleDragStart(e) {
 		const fromRow = findRow(state.slots, device.id);
-		setDrag({ src: "rack", devId: device.id, fromRow });
+		setDrag({ src: "rack", devId: device.id, fromRow, grab: grabRow(e, device) });
 		e.dataTransfer.effectAllowed = "move";
 		e.dataTransfer.setData("text/plain", device.id);
 		setTimeout(() => {
@@ -317,7 +276,6 @@ function ShelfTile({ device, units, isSelected, isMultiU, onSelect }) {
 	}
 	function handleDragEnd(e) {
 		if (e.target) e.target.style.opacity = "";
-		markSwapTarget(null);
 		setDrag(null);
 	}
 
@@ -377,7 +335,7 @@ function DeviceTile({ device, units, isSelected, isMultiU, onSelect }) {
 	function handleDragStart(e) {
 		e.stopPropagation();
 		const fromRow = findRow(state.slots, device.id);
-		setDrag({ src: "rack", devId: device.id, fromRow });
+		setDrag({ src: "rack", devId: device.id, fromRow, grab: grabRow(e, device) });
 		e.dataTransfer.effectAllowed = "move";
 		e.dataTransfer.setData("text/plain", device.id);
 		setTimeout(() => {
@@ -387,7 +345,6 @@ function DeviceTile({ device, units, isSelected, isMultiU, onSelect }) {
 
 	function handleDragEnd(e) {
 		if (e.target) e.target.style.opacity = "";
-		markSwapTarget(null);
 		setDrag(null);
 	}
 
@@ -425,106 +382,6 @@ function DeviceTile({ device, units, isSelected, isMultiU, onSelect }) {
 // ── RackRow ───────────────────────────────────────────────────────────────────
 
 function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
-	const { drag, setDrag } = useDrag();
-	const { state, dispatch } = useApp();
-	const toast = useToast();
-
-	function getPreviewDev() {
-		return resolveDragDev(drag, state);
-	}
-
-	function handleDragOver(e) {
-		e.preventDefault();
-		const dev = getPreviewDev();
-		if (!dev) return;
-		const row = pointerRow(e, rowIndex, state.devices);
-		const same = drag.src === "rack" && drag.fromRow === row;
-		const moves =
-			!same && drag.src === "rack"
-				? rackDropMoves(state, drag.devId, row, tileUnder(e), e.altKey)
-				: null;
-		const ok =
-			!same &&
-			(drag.src === "rack"
-				? !!moves && !!planMoves(state, moves)
-				: canPlace(state.slots, state.rackSize, row, dev) ||
-					!!insertPlan(state, dev, row));
-		// Moves that touch devices outside the dragged group are a swap (Alt) or an insert
-		const dragGroup = groupMembers(state, dev.groupId);
-		const other = moves?.find(
-			(m) => m.id !== drag.devId && !dragGroup.includes(m.id),
-		);
-		const inserting =
-			ok &&
-			(drag.src === "rack"
-				? !!other && !e.altKey
-				: !canPlace(state.slots, state.rackSize, row, dev));
-		markSwapTarget(ok && e.altKey ? (other?.id ?? null) : null);
-		e.currentTarget.dataset.dropState = same
-			? ""
-			: inserting
-				? "insert"
-				: ok
-					? "valid"
-					: "invalid";
-		e.dataTransfer.dropEffect = ok ? "copy" : "none";
-	}
-
-	function handleDragLeave(e) {
-		if (!e.currentTarget.contains(e.relatedTarget)) {
-			e.currentTarget.dataset.dropState = "";
-			markSwapTarget(null);
-		}
-	}
-
-	function handleDrop(e) {
-		e.preventDefault();
-		e.currentTarget.dataset.dropState = "";
-		markSwapTarget(null);
-		if (!drag) return;
-		const row = pointerRow(e, rowIndex, state.devices);
-
-		if (drag.src === "lib") {
-			const lib = getEffectiveLib(state).find((l) => l.libId === drag.libId);
-			if (!lib) return;
-			const dev = deviceFromLib(lib);
-			if (canPlace(state.slots, state.rackSize, row, dev)) {
-				dispatch({ type: "PLACE_DEVICE", device: dev, rowIndex: row });
-			} else if (insertPlan(state, dev, row)) {
-				dispatch({ type: "INSERT_DEVICE", device: dev, rowIndex: row });
-			} else {
-				toast("Cannot place here");
-				return;
-			}
-		} else if (drag.src === "rack") {
-			if (drag.fromRow === row) return;
-			const targetId = tileUnder(e);
-			if (!canRackDrop(state, drag.devId, row, targetId, e.altKey)) {
-				toast("Cannot place here");
-				return;
-			}
-			dispatch({
-				type: "MOVE_DEVICES",
-				moves: rackDropMoves(state, drag.devId, row, targetId, e.altKey),
-			});
-		} else if (drag.src === "shelf") {
-			const hit = findShelved(state.devices, drag.devId);
-			if (!hit) return;
-			if (!canPlace(state.slots, state.rackSize, row, hit.dev)) {
-				toast("Cannot place here");
-				return;
-			}
-			dispatch({
-				type: "MOVE_SHELF_ITEM_TO_RACK",
-				shelfId: hit.shelfId,
-				deviceId: hit.dev.id,
-				rowIndex: row,
-			});
-		}
-
-		setDrag(null);
-	}
-
 	if (slot.spanOf) {
 		return <div className="rack-span" data-row={rowIndex} />;
 	}
@@ -536,10 +393,6 @@ function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
 		<div
 			className="rack-row"
 			data-row={rowIndex}
-			data-drop-state=""
-			onDragOver={handleDragOver}
-			onDragLeave={handleDragLeave}
-			onDrop={handleDrop}
 			onClick={() => onSelect(null)}
 		>
 			{slot.items.map((it) => {
@@ -584,6 +437,125 @@ function RackRow({ rowIndex, slot, devices, selIds, onSelect }) {
 export default function RackCanvas() {
 	const { state, dispatch } = useApp();
 	const { openConfirm } = useModal();
+	const { drag, setDrag } = useDrag();
+	const toast = useToast();
+	const [preview, setPreview] = useState(null);
+	const previewKey = useRef(null);
+
+	useEffect(() => {
+		if (!drag) {
+			setPreview(null);
+			previewKey.current = null;
+		}
+	}, [drag]);
+
+	// Drop target = the whole rack. Row comes from the pointer minus the grabbed row.
+	function planFor(e) {
+		const dev = resolveDragDev(drag, state);
+		if (!dev) return null;
+		const rect = e.currentTarget.getBoundingClientRect();
+		const pointer = Math.floor(
+			(e.clientY - rect.top) / (rect.height / state.rackSize),
+		);
+		const row = Math.max(
+			0,
+			Math.min(state.rackSize - dev.uH, pointer - (drag.grab ?? 0)),
+		);
+		const swapWith = e.altKey && drag.src === "rack" ? tileUnder(e) : null;
+		if (drag.src === "rack" && row === drag.fromRow && !swapWith)
+			return { dev, row, same: true };
+		return { dev, row, plan: dropPlan(state, dev, row, swapWith) };
+	}
+
+	function showPreview(p) {
+		const key = p && JSON.stringify([p.row, p.same, p.plan]);
+		if (key === previewKey.current) return;
+		previewKey.current = key;
+		setPreview(p);
+	}
+
+	function handleDragOver(e) {
+		if (!drag) return;
+		if (e.target.closest?.(".shelf-inner")) return showPreview(null);
+		e.preventDefault();
+		const p = planFor(e);
+		e.dataTransfer.dropEffect = p?.plan
+			? drag.src === "lib"
+				? "copy"
+				: "move"
+			: "none";
+		showPreview(p);
+	}
+
+	function handleDragLeave(e) {
+		if (!e.currentTarget.contains(e.relatedTarget)) showPreview(null);
+	}
+
+	function handleDrop(e) {
+		e.preventDefault();
+		const p = drag && planFor(e);
+		showPreview(null);
+		setDrag(null);
+		if (!p || p.same) return;
+		const { plan } = p;
+		if (!plan) return toast("No room there");
+
+		if (drag.src === "rack") {
+			dispatch({ type: "MOVE_DEVICES", moves: plan.moves });
+		} else if (drag.src === "lib") {
+			const lib = getEffectiveLib(state).find((l) => l.libId === drag.libId);
+			if (!lib) return;
+			const device = deviceFromLib(lib);
+			dispatch(
+				plan.kind === "move"
+					? { type: "PLACE_DEVICE", device, rowIndex: plan.row }
+					: { type: "INSERT_DEVICE", device, rowIndex: plan.row },
+			);
+		} else if (drag.src === "shelf") {
+			const hit = findShelved(state.devices, drag.devId);
+			if (!hit) return;
+			const { shelfId } = hit;
+			const deviceId = hit.dev.id;
+			dispatch(
+				plan.kind === "move"
+					? { type: "MOVE_SHELF_ITEM_TO_RACK", shelfId, deviceId, rowIndex: plan.row }
+					: {
+							type: "BATCH",
+							actions: [
+								{ type: "REMOVE_FROM_SHELF", shelfId, deviceId },
+								{ type: "INSERT_DEVICE", device: hit.dev, rowIndex: plan.row },
+							],
+						},
+			);
+		}
+	}
+
+	// Outlines of where every affected device will land
+	function ghosts() {
+		if (!drag || !preview || preview.same) return null;
+		const { dev, row, plan } = preview;
+		const isMain = (id) =>
+			id === dev.id ||
+			(!!dev.groupId && state.devices[id]?.groupId === dev.groupId);
+		const items = plan ? plan.moves : [{ id: dev.id, row }];
+		return items.map(({ id, row: r }) => {
+			const d = state.devices[id] ?? dev;
+			const look = !plan ? "is-invalid" : isMain(id) ? "is-main" : "is-moved";
+			return (
+				<div
+					key={id}
+					className={"drop-ghost " + look}
+					style={{ "--r": r, "--h": d.uH }}
+				>
+					{id === dev.id && (
+						<span>
+							{d.name} · {plan ? DROP_LABEL[plan.kind] : "No room"}
+						</span>
+					)}
+				</div>
+			);
+		});
+	}
 
 	function handleSelect(id, additive = false) {
 		dispatch({ type: "SELECT_DEVICE", deviceId: id, additive });
@@ -651,7 +623,12 @@ export default function RackCanvas() {
 				</div>
 				<div className="rack-chassis">
 					<div className="rack-rail" />
-					<div className="rack-slots">
+					<div
+						className="rack-slots"
+						onDragOver={handleDragOver}
+						onDragLeave={handleDragLeave}
+						onDrop={handleDrop}
+					>
 						{state.slots.map((slot, i) => (
 							<RackRow
 								key={i}
@@ -662,6 +639,7 @@ export default function RackCanvas() {
 								onSelect={handleSelect}
 							/>
 						))}
+						{ghosts()}
 					</div>
 					<div className="rack-rail bot" />
 				</div>

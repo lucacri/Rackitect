@@ -625,3 +625,45 @@ describe("loadSaved (refresh keeps the rack)", () => {
 		delete globalThis.localStorage;
 	});
 });
+
+describe("dropPlan", () => {
+	async function rack(...rows) {
+		let s = INIT;
+		for (const [lib, r] of rows) s = place(s, lib, r);
+		return s;
+	}
+	const at = (s, id) => findRow(s.slots, id);
+	const idAt = (s, r) => s.slots[r].items[0].id;
+
+	it("2U below a 1U moves above it (1U pushed into the freed space)", async () => {
+		const { dropPlan } = await import("./helpers");
+		let s = await rack([oneU, 0], [twoU, 1]);
+		const [one, two] = [idAt(s, 0), idAt(s, 1)];
+		const plan = dropPlan(s, s.devices[two], 0);
+		expect(plan.kind).toBe("insert");
+		s = reducer(s, { type: "MOVE_DEVICES", moves: plan.moves });
+		expect([at(s, two), at(s, one)]).toEqual([0, 2]);
+	});
+
+	it("1U dropped on either half of the 2U below it ends up under it", async () => {
+		const { dropPlan } = await import("./helpers");
+		for (const target of [1, 2]) {
+			let s = await rack([oneU, 0], [twoU, 1]);
+			const [one, two] = [idAt(s, 0), idAt(s, 1)];
+			const plan = dropPlan(s, s.devices[one], target);
+			expect(plan.kind).toBe("reorder");
+			s = reducer(s, { type: "MOVE_DEVICES", moves: plan.moves });
+			expect([at(s, two), at(s, one)]).toEqual([0, 2]);
+		}
+	});
+
+	it("plain move into empty space, library insert, and refusal", async () => {
+		const { dropPlan } = await import("./helpers");
+		const s = await rack([oneU, 0]);
+		expect(dropPlan(s, s.devices[idAt(s, 0)], 5).kind).toBe("move");
+		expect(dropPlan(s, deviceFromLib(oneU), 0).kind).toBe("insert");
+		let full = INIT;
+		for (let r = 0; r < 12; r++) full = place(full, oneU, r);
+		expect(dropPlan(full, deviceFromLib(oneU), 3)).toBeNull();
+	});
+});

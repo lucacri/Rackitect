@@ -1158,3 +1158,27 @@ html, body, #root {
 
 .tb-save { font-size: 11px; color: #7fbf8f; margin-right: 8px; white-space: nowrap; }
 .tb-save.is-error { color: #ff8a7a; font-weight: 700; }
+
+/* Drag preview: where each affected device will land */
+.rack-slots { position: relative; }
+.drop-ghost {
+  position: absolute; left: 0; right: 0; z-index: 5; pointer-events: none;
+  top: calc(var(--row-h) * var(--r)); height: calc(var(--row-h) * var(--h));
+  border-radius: 3px; display: flex; align-items: center; padding: 0 8px;
+  font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000;
+}
+.drop-ghost.is-main    { background: rgba(74, 163, 255, .28); border: 2px solid #4aa3ff; }
+.drop-ghost.is-moved   { background: rgba(255, 210, 74, .12); border: 2px dashed #ffd24a; }
+.drop-ghost.is-invalid { background: rgba(192, 57, 43, .28); border: 2px solid #c0392b; }
+
+/* Drag preview: where each affected device will land */
+.rack-slots { position: relative; }
+.drop-ghost {
+  position: absolute; left: 0; right: 0; z-index: 5; pointer-events: none;
+  top: calc(var(--row-h) * var(--r)); height: calc(var(--row-h) * var(--h));
+  border-radius: 3px; display: flex; align-items: center; padding: 0 8px;
+  font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000;
+}
+.drop-ghost.is-main    { background: rgba(74, 163, 255, .28); border: 2px solid #4aa3ff; }
+.drop-ghost.is-moved   { background: rgba(255, 210, 74, .12); border: 2px dashed #ffd24a; }
+.drop-ghost.is-invalid { background: rgba(192, 57, 43, .28); border: 2px solid #c0392b; }
