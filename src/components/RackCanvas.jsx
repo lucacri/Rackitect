@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useApp } from "../state/AppContext";
 import { useDrag, useModal, useToast } from "../state/UIContext";
-import { CAT_COLORS, MAX_U, PORT_LBL } from "../data/constants";
+import { CAT_COLORS, MAX_RACK, MAX_U, PORT_LBL } from "../data/constants";
 import {
 	asSelGroup,
 	canPlaceOnShelf,
@@ -17,6 +17,16 @@ import {
 	pwrBadge,
 	selectedIds,
 } from "../state/helpers";
+import {
+	clampSize,
+	crossRackPlan,
+	rackOf,
+	rackView,
+	shrinkLoss,
+} from "../state/racks";
+
+// The rack view ({ ...state, slots, rackSize }) of the rack a tile sits in
+const RackViewCtx = createContext(null);
 
 // All port groups as a compact string: "24×RJ45 1G · 4×SFP+"
 function portDetail(ports) {
@@ -102,11 +112,12 @@ function endMove(e, setDrag) {
 	setDrag(null);
 }
 
-function startRackDrag(e, setDrag, state, device) {
+function startRackDrag(e, setDrag, view, device) {
 	startMove(e, setDrag, {
 		src: "rack",
 		devId: device.id,
-		fromRow: findRow(state.slots, device.id),
+		fromRackId: rackOf(view, device.id),
+		fromRow: findRow(view.slots, device.id),
 		grab: grabRow(e, device),
 	});
 }
@@ -304,7 +315,7 @@ function ShelfInner({ shelf }) {
 
 function ShelfTile({ device, units, isSelected, isDim, isMultiU, onSelect }) {
 	const { setDrag } = useDrag();
-	const { state } = useApp();
+	const state = useContext(RackViewCtx);
 	const grp = groupLook(state, device);
 
 	const cls = [
@@ -350,7 +361,7 @@ function ShelfTile({ device, units, isSelected, isDim, isMultiU, onSelect }) {
 
 function DeviceTile({ device, units, isSelected, isDim, isMultiU, onSelect }) {
 	const { setDrag } = useDrag();
-	const { state } = useApp();
+	const state = useContext(RackViewCtx);
 	const { bg, fg } = CAT_COLORS[device.cat] ?? CAT_COLORS.custom;
 	const pb = pwrBadge(device.pwr);
 	const detail = portDetail(device.ports);
@@ -458,11 +469,96 @@ function RackRow({ rowIndex, slot, devices, selIds, dimIds, onSelect }) {
 	);
 }
 
-// ── RackCanvas ────────────────────────────────────────────────────────────────
+// ── RackHeader ────────────────────────────────────────────────────────────────
 
-export default function RackCanvas() {
+function RackHeader({ rack, view }) {
 	const { state, dispatch } = useApp();
 	const { openConfirm } = useModal();
+	// Size applies on Enter or blur, so typing "20" never passes through 2U
+	const [draft, setDraft] = useState(String(rack.size));
+	useEffect(() => setDraft(String(rack.size)), [rack.size]);
+
+	function applySize() {
+		const newSize = clampSize(draft);
+		if (newSize === null || newSize === rack.size)
+			return setDraft(String(rack.size));
+		const atRisk = shrinkLoss(state, rack.id, newSize);
+		const doResize = () =>
+			dispatch({
+				type: "BATCH",
+				actions: [
+					...atRisk.map((d) => ({ type: "DELETE_DEVICE", deviceId: d.id })),
+					{ type: "SET_RACK_SIZE", rackId: rack.id, newSize },
+				],
+			});
+		if (atRisk.length) {
+			setDraft(String(rack.size));
+			openConfirm(
+				`Shrinking "${rack.name}" to ${newSize}U will remove: ${atRisk.map((d) => d.name).join(", ")}. Continue?`,
+				doResize,
+				{ verb: "Shrink rack" },
+			);
+		} else {
+			setDraft(String(newSize));
+			doResize();
+		}
+	}
+
+	function handleRemove() {
+		const n = view.slots.reduce((sum, sl) => sum + sl.items.length, 0);
+		const remove = () => dispatch({ type: "REMOVE_RACK", rackId: rack.id });
+		if (!n) return remove();
+		openConfirm(
+			`Remove "${rack.name}" and the ${n === 1 ? "device" : `${n} devices`} in it?`,
+			remove,
+			{ verb: "Remove rack" },
+		);
+	}
+
+	return (
+		<div className="rack-head">
+			<input
+				className="rack-name-input"
+				aria-label="Rack name"
+				type="text"
+				value={rack.name}
+				spellCheck={false}
+				autoComplete="off"
+				onChange={(e) =>
+					dispatch({ type: "SET_RACK_NAME", rackId: rack.id, name: e.target.value })
+				}
+			/>
+			<input
+				className="rack-size-input"
+				aria-label="Rack size (U)"
+				type="number"
+				min={1}
+				max={MAX_RACK}
+				value={draft}
+				onChange={(e) => setDraft(e.target.value)}
+				onBlur={applySize}
+				onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+			/>
+			<span className="tb-label">U</span>
+			<button
+				className="btn btn-sm rack-remove"
+				onClick={handleRemove}
+				disabled={state.racks.length === 1}
+				title={
+					state.racks.length === 1 ? "The last rack can't be removed" : "Remove rack"
+				}
+				aria-label={`Remove ${rack.name}`}
+			>
+				×
+			</button>
+		</div>
+	);
+}
+
+// ── RackPanel ─────────────────────────────────────────────────────────────────
+
+function RackPanel({ rack, selIds, onSelect }) {
+	const { state, dispatch } = useApp();
 	const { drag, setDrag } = useDrag();
 	const toast = useToast();
 	const [preview, setPreview] = useState(null);
@@ -475,12 +571,18 @@ export default function RackCanvas() {
 		}
 	}, [drag]);
 
-	const selIds = selectedIds(state);
-	// Dragging one tile of a multi-selection brings the whole selection
-	const planState =
-		drag?.src === "rack" && selIds.length > 1 && selIds.includes(drag.devId)
-			? asSelGroup(state, selIds)
-			: state;
+	const view = rackView(state, rack.id);
+	// A rack drag is planned from its source rack. Dragging one tile of a
+	// multi-selection brings the selection's members in that rack.
+	const src = drag?.src === "rack" ? rackView(state, drag.fromRackId) : null;
+	const srcSel = src ? selIds.filter((id) => findRow(src.slots, id) >= 0) : [];
+	const base =
+		src && srcSel.length > 1 && srcSel.includes(drag.devId)
+			? asSelGroup(src, srcSel)
+			: (src ?? view);
+	const cross = !!src && drag.fromRackId !== rack.id;
+	// The dragged devices as planned, on this rack's rows
+	const planState = { ...base, slots: view.slots, rackSize: view.rackSize };
 
 	// Drop target = the whole rack. Row comes from the pointer minus the grabbed row.
 	function planFor(e) {
@@ -488,9 +590,14 @@ export default function RackCanvas() {
 		if (!dev) return null;
 		const rect = e.currentTarget.getBoundingClientRect();
 		const pointer = Math.floor(
-			(e.clientY - rect.top) / (rect.height / state.rackSize),
+			(e.clientY - rect.top) / (rect.height / rack.size),
 		);
-		const row = clampDropRow(planState, dev, pointer - (drag.grab ?? 0));
+		const want = pointer - (drag.grab ?? 0);
+		if (cross) {
+			const row = clampDropRow({ ...base, rackSize: rack.size }, dev, want);
+			return { dev, row, plan: crossRackPlan(base, drag.fromRackId, rack.id, dev, want) };
+		}
+		const row = clampDropRow(planState, dev, want);
 		const over = drag.src === "rack" ? tileUnder(e) : null;
 		const swapWith = e.altKey ? over : null;
 		if (drag.src === "rack" && row === drag.fromRow && !swapWith)
@@ -535,17 +642,18 @@ export default function RackCanvas() {
 		if (!p || p.same) return;
 		const { plan } = p;
 		if (!plan) return toast("No room there");
+		const rackId = rack.id;
 
 		if (drag.src === "rack") {
-			dispatch({ type: "MOVE_DEVICES", moves: plan.moves });
+			dispatch({ type: "MOVE_DEVICES", rackId, moves: plan.moves });
 		} else if (drag.src === "lib") {
 			const lib = getEffectiveLib(state).find((l) => l.libId === drag.libId);
 			if (!lib) return;
 			const device = deviceFromLib(lib);
 			dispatch(
 				plan.kind === "move"
-					? { type: "PLACE_DEVICE", device, rowIndex: plan.row }
-					: { type: "INSERT_DEVICE", device, rowIndex: plan.row },
+					? { type: "PLACE_DEVICE", rackId, device, rowIndex: plan.row }
+					: { type: "INSERT_DEVICE", rackId, device, rowIndex: plan.row },
 			);
 		} else if (drag.src === "shelf") {
 			const hit = findShelved(state.devices, drag.devId);
@@ -554,12 +662,12 @@ export default function RackCanvas() {
 			const deviceId = hit.dev.id;
 			dispatch(
 				plan.kind === "move"
-					? { type: "MOVE_SHELF_ITEM_TO_RACK", shelfId, deviceId, rowIndex: plan.row }
+					? { type: "MOVE_SHELF_ITEM_TO_RACK", rackId, shelfId, deviceId, rowIndex: plan.row }
 					: {
 							type: "BATCH",
 							actions: [
 								{ type: "REMOVE_FROM_SHELF", shelfId, deviceId },
-								{ type: "INSERT_DEVICE", device: hit.dev, rowIndex: plan.row },
+								{ type: "INSERT_DEVICE", rackId, device: hit.dev, rowIndex: plan.row },
 							],
 						},
 			);
@@ -573,7 +681,7 @@ export default function RackCanvas() {
 		const s = planState.devices[dev.id]
 			? planState
 			: { ...planState, devices: { ...planState.devices, [dev.id]: dev } };
-		const slots = plan ? planMoves(s, plan.moves) : same ? state.slots : null;
+		const slots = plan ? planMoves(s, plan.moves) : same ? view.slots : null;
 		const isMain = (id) =>
 			id === dev.id || (!!dev.groupId && s.devices[id]?.groupId === dev.groupId);
 		const label = same
@@ -610,6 +718,55 @@ export default function RackCanvas() {
 		preview?.plan?.moves.map((m) => m.id).filter((id) => id !== drag?.devId),
 	);
 
+	return (
+		<section className="rack-card" aria-label={rack.name}>
+			<RackHeader rack={rack} view={view} />
+			<div className="rack-outer">
+				<div className="u-col">
+					{Array.from({ length: rack.size }, (_, i) => (
+						<div key={i} className="u-num">
+							{i + 1}
+						</div>
+					))}
+				</div>
+				<div className="rack-chassis">
+					<div className="rack-rail" />
+					<div
+						className="rack-slots"
+						onDragOver={handleDragOver}
+						onDragLeave={handleDragLeave}
+						onDrop={handleDrop}
+					>
+						<RackViewCtx.Provider value={view}>
+							{view.slots.map((slot, i) => (
+								<RackRow
+									key={i}
+									rowIndex={i}
+									slot={slot}
+									devices={state.devices}
+									selIds={selIds}
+									dimIds={dimIds}
+									onSelect={onSelect}
+								/>
+							))}
+						</RackViewCtx.Provider>
+						{ghosts()}
+					</div>
+					<div className="rack-rail bot" />
+				</div>
+			</div>
+		</section>
+	);
+}
+
+// ── RackCanvas ────────────────────────────────────────────────────────────────
+
+export default function RackCanvas() {
+	const { state, dispatch } = useApp();
+	const { openConfirm } = useModal();
+	const toast = useToast();
+	const selIds = selectedIds(state);
+
 	function handleSelect(id, additive = false) {
 		dispatch({ type: "SELECT_DEVICE", deviceId: id, additive });
 	}
@@ -631,8 +788,13 @@ export default function RackCanvas() {
 				return;
 			} else if ((key === "arrowup" || key === "arrowdown") && selIds.length) {
 				e.preventDefault();
-				const plan = nudgePlan(state, selIds, key === "arrowup" ? -1 : 1);
-				if (plan) dispatch({ type: "MOVE_DEVICES", moves: plan.moves });
+				// Nudges stay inside the first selected device's rack
+				const rackId = rackOf(state, selIds[0]);
+				const view = rackView(state, rackId);
+				if (!view) return;
+				const ids = selIds.filter((id) => findRow(view.slots, id) >= 0);
+				const plan = nudgePlan(view, ids, key === "arrowup" ? -1 : 1);
+				if (plan) dispatch({ type: "MOVE_DEVICES", rackId, moves: plan.moves });
 			} else if (key === "escape") {
 				dispatch({ type: "SELECT_DEVICE", deviceId: null });
 			} else if ((key === "delete" || key === "backspace") && selIds.length) {
@@ -657,50 +819,27 @@ export default function RackCanvas() {
 				const oneGroup =
 					!!groupId &&
 					selIds.every((id) => state.devices[id].groupId === groupId);
-				dispatch(
-					oneGroup
-						? { type: "UNGROUP", groupId }
-						: { type: "GROUP_DEVICES", ids: selIds },
-				);
+				if (oneGroup) dispatch({ type: "UNGROUP", groupId });
+				else if (new Set(selIds.map((id) => rackOf(state, id))).size > 1)
+					toast("Groups must be in one rack");
+				else dispatch({ type: "GROUP_DEVICES", ids: selIds });
 			}
 		}
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [state, selIds, dispatch, openConfirm]);
+	}, [state, selIds, dispatch, openConfirm, toast]);
 
 	return (
 		<main className="panel-center">
-			<div className="rack-outer">
-				<div className="u-col">
-					{Array.from({ length: state.rackSize }, (_, i) => (
-						<div key={i} className="u-num">
-							{i + 1}
-						</div>
-					))}
-				</div>
-				<div className="rack-chassis">
-					<div className="rack-rail" />
-					<div
-						className="rack-slots"
-						onDragOver={handleDragOver}
-						onDragLeave={handleDragLeave}
-						onDrop={handleDrop}
-					>
-						{state.slots.map((slot, i) => (
-							<RackRow
-								key={i}
-								rowIndex={i}
-								slot={slot}
-								devices={state.devices}
-								selIds={selIds}
-								dimIds={dimIds}
-								onSelect={handleSelect}
-							/>
-						))}
-						{ghosts()}
-					</div>
-					<div className="rack-rail bot" />
-				</div>
+			<div className={`racks is-${state.layout}`}>
+				{state.racks.map((rack) => (
+					<RackPanel
+						key={rack.id}
+						rack={rack}
+						selIds={selIds}
+						onSelect={handleSelect}
+					/>
+				))}
 			</div>
 		</main>
 	);

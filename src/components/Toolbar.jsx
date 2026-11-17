@@ -2,50 +2,23 @@ import { useEffect, useRef } from "react";
 import { useApp } from "../state/AppContext";
 import { useModal } from "../state/UIContext";
 import { useToast } from "../state/UIContext";
-import { RACK_SIZES } from "../data/constants";
-import { findRow, normalizeState } from "../state/helpers";
+import { normalizeState } from "../state/helpers";
 
 export default function Toolbar() {
 	const { state, dispatch, canUndo, canRedo, saveError } = useApp();
 	const { openDevModal, openConfirm } = useModal();
 	const toast = useToast();
 	const importRef = useRef(null);
+	const rackName = state.racks[0].name;
 
 	useEffect(() => {
-		document.title = (state.rackName || "Rack") + " — Rackitect";
-	}, [state.rackName]);
-
-	function handleSizeChange(e) {
-		const newSize = +e.target.value;
-		if (newSize === state.rackSize) return;
-		const atRisk = Object.values(state.devices).filter((d) => {
-			const r = findRow(state.slots, d.id);
-			return r >= 0 && r + d.uH > newSize;
-		});
-		const doResize = () =>
-			dispatch({
-				type: "BATCH",
-				actions: [
-					...atRisk.map((d) => ({ type: "DELETE_DEVICE", deviceId: d.id })),
-					{ type: "SET_RACK_SIZE", newSize },
-				],
-			});
-		if (atRisk.length) {
-			openConfirm(
-				`Shrinking to ${newSize}U will remove: ${atRisk.map((d) => d.name).join(", ")}. Continue?`,
-				doResize,
-				{ verb: "Shrink rack" },
-			);
-			e.target.value = state.rackSize;
-		} else {
-			doResize();
-		}
-	}
+		document.title = (rackName || "Rack") + " — Rackitect";
+	}, [rackName]);
 
 	function handleClear() {
 		if (!Object.keys(state.devices).length) return;
 		openConfirm(
-			"Remove all devices from the rack?",
+			"Remove all devices from every rack?",
 			() => dispatch({ type: "CLEAR_RACK" }),
 			{ verb: "Remove all" },
 		);
@@ -55,7 +28,7 @@ export default function Toolbar() {
 
 	function handleExport() {
 		const filename =
-			(state.rackName || "rack").replace(/[^a-z0-9_-]/gi, "_") + ".json";
+			(rackName || "rack").replace(/[^a-z0-9_-]/gi, "_") + ".json";
 		const json = JSON.stringify(state, null, 2);
 		const blob = new Blob([json], { type: "application/json" });
 		const url = URL.createObjectURL(blob);
@@ -80,7 +53,7 @@ export default function Toolbar() {
 				const parsed = normalizeState(JSON.parse(ev.target.result));
 
 				openConfirm(
-					`Load "${parsed.rackName || "rack"}"? This will replace your current layout.`,
+					`Load "${parsed.racks[0].name || "rack"}"? This will replace your current layout.`,
 					() => dispatch({ type: "LOAD", payload: parsed }),
 					{ verb: "Replace layout" },
 				);
@@ -97,29 +70,28 @@ export default function Toolbar() {
 				Rack<span>itect</span>
 			</span>
 			<div className="tb-sep" />
-			<input
-				className="rack-name-input"
-				aria-label="Rack name"
-				type="text"
-				value={state.rackName}
-				spellCheck={false}
-				autoComplete="off"
-				onChange={(e) =>
-					dispatch({ type: "SET_RACK_NAME", name: e.target.value })
-				}
-			/>
-			<span className="tb-label">Size</span>
-			<select
-				className="rack-size-select"
-				value={state.rackSize}
-				onChange={handleSizeChange}
+			<button
+				className="btn btn-sm"
+				onClick={() => dispatch({ type: "ADD_RACK" })}
+				title="Add a 12U rack"
 			>
-				{RACK_SIZES.map((s) => (
-					<option key={s} value={s}>
-						{s}U
-					</option>
+				+ Rack
+			</button>
+			<div className="tb-toggle" role="group" aria-label="Rack layout">
+				{[
+					["side", "Side by side"],
+					["stack", "Stacked"],
+				].map(([layout, label]) => (
+					<button
+						key={layout}
+						className="btn btn-sm"
+						aria-pressed={state.layout === layout}
+						onClick={() => dispatch({ type: "SET_LAYOUT", layout })}
+					>
+						{label}
+					</button>
 				))}
-			</select>
+			</div>
 			<div className="tb-spacer" />
 			<span
 				className={"tb-save" + (saveError ? " is-error" : "")}
@@ -181,7 +153,7 @@ export default function Toolbar() {
 				+ New device
 			</button>
 			<button className="btn btn-sm" onClick={handleClear}>
-				Clear rack
+				Clear all
 			</button>
 		</header>
 	);

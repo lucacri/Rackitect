@@ -69,3 +69,13 @@ export function crossRackPlan(state, fromRackId, toRackId, dev, row) {
 	const up = insertMoves(dst, moves, true);
 	return planMoves(dst, up) ? { kind: "insertUp", moves: up, row: r } : null;
 }
+
+// Devices in this rack that would be dropped by resizing it to `newSize`
+export function shrinkLoss(state, rackId, newSize) {
+	const view = rackView(state, rackId);
+	if (!view) return [];
+	return Object.values(state.devices).filter((d) => {
+		const r = findRow(view.slots, d.id);
+		return r >= 0 && r + d.uH > newSize;
+	});
+}

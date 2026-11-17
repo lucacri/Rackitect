@@ -6,6 +6,7 @@ import {
 	firstFreeSpot,
 	mkRack,
 	rackOf,
+	shrinkLoss,
 	rackView,
 	withRackSlots,
 } from "./racks";
@@ -200,5 +201,28 @@ describe("racks", () => {
 			expect(JSON.stringify(s)).toBe(before);
 			expect(crossRackPlan(s, "r1", "nope", s.devices.a, 4)).toBeNull();
 		});
+	});
+	it("shrinkLoss names only this rack's devices below the new size", () => {
+		const twoU = { ...oneU, uH: 2 };
+		let slots1 = Array.from({ length: 12 }, () => ({ items: [], spanOf: null }));
+		slots1 = placeDeviceInSlots(slots1, { ...oneU, id: "top" }, 0);
+		slots1 = placeDeviceInSlots(slots1, { ...twoU, id: "mid" }, 4); // rows 4-5
+		slots1 = placeDeviceInSlots(slots1, { ...oneU, id: "low" }, 9);
+		const s = normalizeState({
+			devices: {
+				top: { ...oneU, id: "top" },
+				mid: { ...twoU, id: "mid" },
+				low: { ...oneU, id: "low" },
+				other: { ...oneU, id: "other" },
+			},
+			racks: [
+				{ id: "r1", size: 12, slots: slots1 },
+				{ id: "r2", size: 12, slots: at("other", 11) },
+			],
+		});
+		expect(shrinkLoss(s, "r1", 5).map((d) => d.id).sort()).toEqual(["low", "mid"]);
+		expect(shrinkLoss(s, "r1", 6).map((d) => d.id)).toEqual(["low"]);
+		expect(shrinkLoss(s, "r1", 12)).toEqual([]);
+		expect(shrinkLoss(s, "nope", 1)).toEqual([]);
 	});
 });

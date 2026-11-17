@@ -11,7 +11,7 @@ const DragCtx = createContext(null);
 
 export function DragProvider({ children }) {
 	const [drag, setDrag] = useState(null);
-	// drag shape: { src:'lib'|'rack', libId?, devId?, fromRow? }
+	// drag shape: { src:'lib'|'rack'|'shelf', libId?, devId?, fromRackId?, fromRow?, grab?, shelfId? }
 	return (
 		<DragCtx.Provider value={{ drag, setDrag }}>{children}</DragCtx.Provider>
 	);

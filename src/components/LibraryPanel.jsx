@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { useApp } from '../state/AppContext'
 import { useDrag, useModal, useToast } from '../state/UIContext'
 import { CAT_COLORS, CAT_ORDER, CAT_NAMES, UNITS_LBL } from '../data/constants'
-import { getEffectiveLib, deviceFromLib, findFirstSlot } from '../state/helpers'
+import { getEffectiveLib, deviceFromLib } from '../state/helpers'
+import { firstFreeSpot } from '../state/racks'
 
 function LibraryItem({ lib, onEditClick }) {
   const { setDrag } = useDrag()
@@ -29,10 +30,11 @@ function LibraryItem({ lib, onEditClick }) {
   function handleQuickAdd(e) {
     e.stopPropagation()
     const dev = deviceFromLib(lib)
-    const ri = findFirstSlot(state, dev)
-    if (ri === -1) { toast('No space available in rack'); return }
-    dispatch({ type: 'PLACE_DEVICE', device: dev, rowIndex: ri })
-    toast(`${lib.name} added at U${ri + 1}`)
+    const spot = firstFreeSpot(state, dev)
+    if (!spot) { toast('No space in any rack'); return }
+    dispatch({ type: 'PLACE_DEVICE', rackId: spot.rackId, device: dev, rowIndex: spot.row })
+    const rack = state.racks.find((r) => r.id === spot.rackId)
+    toast(`${lib.name} added to ${rack.name} at U${spot.row + 1}`)
   }
 
   return (

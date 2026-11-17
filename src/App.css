@@ -99,16 +99,26 @@ html, body, #root {
 }
 .rack-name-input:focus { outline: 2px solid var(--accent); }
 
-.rack-size-select {
+.rack-size-input {
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  padding: 3px 8px;
+  padding: 3px 6px;
   font-size: 13px;
-  cursor: pointer;
+  width: 56px;
 }
-.rack-size-select:focus { outline: 2px solid var(--accent); }
+.rack-size-input:focus { outline: 2px solid var(--accent); }
+
+/* Two-button layout toggle */
+.tb-toggle { display: inline-flex; }
+.tb-toggle .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.tb-toggle .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
+.tb-toggle .btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
@@ -285,11 +295,30 @@ html, body, #root {
   flex: 1;
   display: flex;
   align-items: flex-start;
-  justify-content: center;
   overflow: auto;
   padding: 24px;
   background: var(--bg);
 }
+
+/* Racks side by side (scrolls sideways) or stacked; auto margins center them
+   without cutting off the left edge when they overflow */
+.racks {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+  margin: 0 auto;
+}
+.racks.is-stack { flex-direction: column; }
+
+.rack-card { flex-shrink: 0; }
+
+.rack-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px 26px;
+}
+.rack-head .rack-name-input { flex: 1; min-width: 0; }
 
 .rack-outer {
   display: flex;
@@ -1084,7 +1113,7 @@ html, body, #root {
   .logo          { font-size: 18px; }
   .rack-name-input { font-size: 15px; width: 220px; }
   .tb-label      { font-size: 12px; }
-  .rack-size-select { font-size: 14px; }
+  .rack-size-input { font-size: 14px; }
   .btn           { font-size: 14px; }
   .btn-sm        { font-size: 13px; padding: 4px 11px; }
 

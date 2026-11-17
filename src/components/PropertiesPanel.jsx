@@ -8,33 +8,47 @@ import {
 	PWR_TYPES,
 } from "../data/constants";
 import { rackSummary, findRow, uid } from "../state/helpers";
+import { rackView } from "../state/racks";
 
 // ── Rack summary view (nothing selected) ─────────────────────────────────────
 
 function RackSummary() {
 	const { state, dispatch } = useApp();
-	const { uU, freeU, w, pct } = rackSummary(state);
+	const summaries = state.racks.map((r) => ({
+		rack: r,
+		...rackSummary(rackView(state, r.id)),
+	}));
+	const { w, pct } = summaries[0]; // power is the same for every rack
 	const barColor = pct >= 90 ? "#c0392b" : pct >= 70 ? "#e67e22" : "#27ae60";
 
 	return (
 		<div className="props-body">
-			<div className="props-section-title">Rack summary</div>
-			<div className="props-summary-row">
-				<span className="props-label">Name</span>
-				<span className="props-value">{state.rackName}</span>
-			</div>
-			<div className="props-summary-row">
-				<span className="props-label">Size</span>
-				<span className="props-value">{state.rackSize}U</span>
-			</div>
-			<div className="props-summary-row">
-				<span className="props-label">Used</span>
-				<span className="props-value">{uU}U</span>
-			</div>
-			<div className="props-summary-row">
-				<span className="props-label">Free</span>
-				<span className="props-value">{freeU}U</span>
-			</div>
+			{summaries.map(({ rack, uU, freeU }, i) => (
+				<div key={rack.id}>
+					<div
+						className="props-section-title"
+						style={i ? { marginTop: 16 } : undefined}
+					>
+						Rack summary
+					</div>
+					<div className="props-summary-row">
+						<span className="props-label">Name</span>
+						<span className="props-value">{rack.name}</span>
+					</div>
+					<div className="props-summary-row">
+						<span className="props-label">Size</span>
+						<span className="props-value">{rack.size}U</span>
+					</div>
+					<div className="props-summary-row">
+						<span className="props-label">Used</span>
+						<span className="props-value">{uU}U</span>
+					</div>
+					<div className="props-summary-row">
+						<span className="props-label">Free</span>
+						<span className="props-value">{freeU}U</span>
+					</div>
+				</div>
+			))}
 
 			<div className="props-section-title" style={{ marginTop: 16 }}>
 				Power
@@ -81,7 +95,8 @@ function RackSummary() {
 					<div className="props-device-list">
 						{Object.values(state.devices).map((dev) => {
 							const { bg, fg } = CAT_COLORS[dev.cat] ?? CAT_COLORS.custom;
-							const row = findRow(state.slots, dev.id);
+							const rack = state.racks.find((r) => findRow(r.slots, dev.id) >= 0);
+							const row = rack ? findRow(rack.slots, dev.id) : -1;
 							return (
 								<button
 									key={dev.id}
@@ -93,7 +108,9 @@ function RackSummary() {
 									}
 								>
 									<span className="props-dev-name">{dev.name}</span>
-									<span className="props-dev-pos">U{row + 1}</span>
+									<span className="props-dev-pos">
+										{rack ? `${rack.name} · U${row + 1}` : ""}
+									</span>
 								</button>
 							);
 						})}
