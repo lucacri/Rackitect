@@ -185,29 +185,23 @@ describe("reducer placement invariants", () => {
 		const deviceId = Object.keys(withDevice.devices)[0];
 
 		const moved = reducer(withDevice, {
-			type: "MOVE_DEVICE_TO_RACK",
-			deviceId,
-			rowIndex: 3,
+			type: "MOVE_DEVICES",
+			moves: [{ id: deviceId, row: 3 }],
 		});
 		expect(findRow(moved.slots, deviceId)).toBe(3);
 		expect(moved.slots[0]).toEqual(mkSlot());
 		expect(moved.slots[4].spanOf).toEqual({ id: deviceId, offset: 1 });
 
 		const rejected = reducer(moved, {
-			type: "MOVE_DEVICE_TO_RACK",
-			deviceId,
-			rowIndex: INIT.rackSize,
+			type: "MOVE_DEVICES",
+			moves: [{ id: deviceId, row: INIT.rackSize }],
 		});
 		expect(rejected).toEqual(moved);
 	});
 
-	it("rejects invalid direct shelf placement and cleans slots for valid direct shelf placement", () => {
+	it("places new library devices on a shelf and rejects ones that don't fit", () => {
 		const withShelf = place(INIT, shelfLib, 0);
 		const shelfId = Object.keys(withShelf.devices)[0];
-		const withDevice = place(withShelf, oneU, 1);
-		const deviceId = Object.keys(withDevice.devices).find(
-			(id) => id !== shelfId,
-		);
 
 		expect(
 			reducer(withShelf, {
@@ -217,14 +211,10 @@ describe("reducer placement invariants", () => {
 			}),
 		).toEqual(withShelf);
 
-		const shelved = reducer(withDevice, {
-			type: "PLACE_ON_SHELF",
-			shelfId,
-			device: withDevice.devices[deviceId],
-		});
-		expect(shelved.devices[deviceId]).toBeUndefined();
-		expect(shelved.devices[shelfId].shelved).toHaveLength(1);
-		expect(shelved.slots[1]).toEqual(mkSlot());
+		const device = deviceFromLib(oneU);
+		const shelved = reducer(withShelf, { type: "PLACE_ON_SHELF", shelfId, device });
+		expect(shelved.devices[device.id]).toBeUndefined();
+		expect(shelved.devices[shelfId].shelved).toEqual([device]);
 	});
 
 	it("moves rack devices to shelves and shelf items back to the rack atomically", () => {
@@ -492,14 +482,13 @@ describe("undo history", () => {
 		expect(run(h, { type: "UNDO" })).toBe(h); // nothing left
 	});
 
-	it("skips selection, no-ops and skipHistory; a new change drops redo", () => {
+	it("skips selection and no-ops; a new change drops redo", () => {
 		let h = run(initHistory(INIT), placeAct(0));
 		const id = h.present.slots[0].items[0].id;
 		h = run(
 			h,
 			{ type: "SELECT_DEVICE", deviceId: id },
 			placeAct(0), // occupied row: no-op
-			{ type: "LOAD", payload: h.present, skipHistory: true },
 		);
 		expect(h.past).toHaveLength(1);
 		h = run(h, { type: "UNDO" }, placeAct(3));
@@ -665,5 +654,77 @@ describe("dropPlan", () => {
 		let full = INIT;
 		for (let r = 0; r < 12; r++) full = place(full, oneU, r);
 		expect(dropPlan(full, deviceFromLib(oneU), 3)).toBeNull();
+	});
+});
+
+describe("audit fixes", () => {
+	it("rackSummary counts a row shared by two half-width devices once", async () => {
+		const { rackSummary } = await import("./helpers");
+		const half = { ...oneU, u: 3 };
+		let s = place(INIT, half, 0);
+		s = place(s, half, 0);
+		s = place(s, twoU, 4);
+		expect(rackSummary(s)).toMatchObject({ uU: 3, freeU: 9, w: 300 });
+	});
+
+	it("a shelf holding items keeps its category (device edit and library edit)", () => {
+		let s = place(INIT, shelfLib, 0);
+		const shelfId = s.slots[0].items[0].id;
+		s = reducer(s, { type: "PLACE_ON_SHELF", shelfId, device: deviceFromLib(oneU) });
+		const edited = reducer(s, {
+			type: "UPDATE_DEVICE",
+			deviceId: shelfId,
+			fields: { cat: "compute", name: "Tray" },
+		});
+		expect(edited.devices[shelfId]).toMatchObject({ cat: "shelf", name: "Tray" });
+		const lib = reducer(s, {
+			type: "UPDATE_LIB",
+			libId: "shelf",
+			isBuiltin: true,
+			fields: { name: "Tray", cat: "misc", pwr: shelfLib.pwr, ports: [] },
+		});
+		expect(lib.devices[shelfId]).toMatchObject({ cat: "shelf", name: "Tray" });
+		expect(normalizeState(edited).devices[shelfId].shelved).toHaveLength(1);
+	});
+
+	it("library edits reach devices sitting on shelves", () => {
+		let s = place(INIT, shelfLib, 0);
+		const shelfId = s.slots[0].items[0].id;
+		s = reducer(s, { type: "PLACE_ON_SHELF", shelfId, device: deviceFromLib(oneU) });
+		s = reducer(s, {
+			type: "UPDATE_LIB",
+			libId: "server",
+			isBuiltin: true,
+			fields: { ...oneU, name: "Pi", pwr: { type: "usb", conn: "", w: 7 } },
+		});
+		expect(s.devices[shelfId].shelved[0]).toMatchObject({ name: "Pi", pwr: { w: 7 } });
+	});
+
+	it("imported library entries are validated", async () => {
+		const { getEffectiveLib } = await import("./helpers");
+		const s = normalizeState({
+			customLib: [{ libId: "x" }, null, "junk", { name: "no id" }],
+			libOverrides: { server: { name: "S", uH: "2", ports: "bad" }, bad: 5 },
+		});
+		expect(s.customLib).toHaveLength(1);
+		expect(s.customLib[0]).toMatchObject({ libId: "x", name: "Untitled device", uH: 1, ports: [] });
+		expect(Object.keys(s.libOverrides)).toEqual(["server"]);
+		expect(s.libOverrides.server).toMatchObject({ uH: 2, ports: [] });
+		const x = getEffectiveLib(s).find((l) => l.libId === "x");
+		expect(() => deviceFromLib(x)).not.toThrow();
+		expect(normalizeState({ customLib: [{ libId: "c", _isCustom: true }] }).customLib[0]._isCustom).toBe(true);
+	});
+
+	it("the app context exposes saveError to the toolbar", async () => {
+		const { createElement } = await import("react");
+		const { renderToString } = await import("react-dom/server");
+		const { AppProvider, useApp } = await import("./AppContext");
+		let ctx;
+		function Probe() {
+			ctx = useApp();
+			return null;
+		}
+		renderToString(createElement(AppProvider, null, createElement(Probe)));
+		expect(ctx).toHaveProperty("saveError", false);
 	});
 });

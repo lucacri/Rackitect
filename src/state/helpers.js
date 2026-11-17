@@ -1,4 +1,4 @@
-import { CAT_COLORS, MAX_U, PORT_LBL, RACK_SIZES } from "../data/constants";
+import { CAT_COLORS, MAX_U, RACK_SIZES } from "../data/constants";
 import BUILTIN_LIBRARY from "../data/library";
 
 let _uid = 0;
@@ -10,16 +10,16 @@ export function mkSlot() {
 	return { items: [], spanOf: null };
 }
 
-const DEFAULT_STATE = {
+export const DEFAULT_STATE = {
 	rackName: "Rack 1",
 	rackSize: 12,
 	powerCap: 2000,
 	devices: {},
 	slots: Array.from({ length: 12 }, mkSlot),
 	selId: null,
-	selIds: [],
-	libOverrides: {},
-	customLib: [],
+	selIds: [], // multi-selection (shift/cmd-click or a whole group)
+	libOverrides: {}, // libId -> override fields
+	customLib: [], // user-created library entries
 };
 
 function numberInRange(value, fallback, min, max) {
@@ -87,6 +87,19 @@ function normalizeDevice(id, dev, rackSize) {
 		normalized.shelved = normalizeShelvedItems(id, dev.shelved);
 	}
 	return normalized;
+}
+
+// A library entry from an import or a save, with the same checks as a placed device
+function normalizeLib(libId, entry) {
+	const dev = normalizeDevice(libId, entry, Math.max(...RACK_SIZES));
+	if (!dev) return null;
+	const { id: _id, notes: _n, shelved: _s, groupId: _g, ...lib } = dev;
+	return entry._isCustom ? { ...lib, _isCustom: true } : lib;
+}
+
+// A shelf that still holds items stays a shelf, so the items are not hidden (and dropped on reload)
+export function keepShelfCat(dev, cat) {
+	return dev.shelved?.length ? "shelf" : cat;
 }
 
 export function normalizeState(raw) {
@@ -180,20 +193,19 @@ export function normalizeState(raw) {
 			typeof raw.selId === "string" && globallyUniqueDevices[raw.selId]
 				? raw.selId
 				: null,
-		libOverrides:
-			raw.libOverrides && typeof raw.libOverrides === "object"
-				? raw.libOverrides
-				: {},
-		customLib: Array.isArray(raw.customLib) ? raw.customLib : [],
+		libOverrides: Object.fromEntries(
+			Object.entries(
+				raw.libOverrides && typeof raw.libOverrides === "object"
+					? raw.libOverrides
+					: {},
+			)
+				.map(([libId, o]) => [libId, normalizeLib(libId, o)])
+				.filter(([, o]) => o),
+		),
+		customLib: (Array.isArray(raw.customLib) ? raw.customLib : [])
+			.filter((l) => typeof l?.libId === "string")
+			.map((l) => normalizeLib(l.libId, l)),
 	};
-}
-
-export function esc(s) {
-	return String(s ?? "")
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
 }
 
 export function getEffectiveLib(state) {
@@ -288,17 +300,11 @@ export function pwrBadge(pwr) {
 	return pwr.conn || pwr.type;
 }
 
-export function portSummary(ports) {
-	if (!ports?.length) return "";
-	const p = ports[0];
-	return `${p.n}×${PORT_LBL[p.t] ?? p.t}`;
-}
-
 export function rackSummary(state) {
-	let uU = 0,
-		w = 0;
+	// Rows in use: devices sharing a row (half/third width) count once
+	const uU = state.slots.filter((s) => s.spanOf || s.items.length).length;
+	let w = 0;
 	for (const dev of Object.values(state.devices)) {
-		uU += dev.uH;
 		w += dev.pwr?.w ?? 0;
 		// Also count power draw of items sitting on shelves
 		for (const it of dev.shelved ?? []) {

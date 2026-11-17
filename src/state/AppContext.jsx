@@ -6,10 +6,12 @@ import {
 	useState,
 } from "react";
 import {
+	DEFAULT_STATE,
 	canPlace,
 	canPlaceOnShelf,
 	groupMembers,
 	insertPlan,
+	keepShelfCat,
 	mkSlot,
 	normalizeState,
 	placeDeviceInSlots,
@@ -18,19 +20,7 @@ import {
 	uid,
 } from "./helpers";
 
-// ── Initial state ─────────────────────────────────────────────────────────────
-
-export const INIT = {
-	rackName: "Rack 1",
-	rackSize: 12,
-	powerCap: 2000,
-	devices: {}, // id -> device
-	slots: Array.from({ length: 12 }, mkSlot),
-	selId: null,
-	selIds: [], // multi-selection (shift/cmd-click or a whole group)
-	libOverrides: {}, // libId -> override fields
-	customLib: [], // user-created library entries
-};
+export const INIT = DEFAULT_STATE;
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
 
@@ -123,15 +113,6 @@ function baseReducer(state, action) {
 				devices: { ...state.devices, [device.id]: device },
 				slots: placeDeviceInSlots(state.slots, device, rowIndex),
 			};
-		}
-
-		case "MOVE_DEVICE_TO_RACK": {
-			const { deviceId, rowIndex } = action;
-			const device = state.devices[deviceId];
-			if (!device) return state;
-			const slots = removeDeviceFromSlots(state.slots, deviceId);
-			if (!canPlace(slots, state.rackSize, rowIndex, device)) return state;
-			return { ...state, slots: placeDeviceInSlots(slots, device, rowIndex) };
 		}
 
 		case "INSERT_DEVICE": {
@@ -242,12 +223,6 @@ function baseReducer(state, action) {
 			};
 		}
 
-		case "LIFT_DEVICE": {
-			// Remove from slots only — keep in state.devices (used when moving)
-			const { deviceId } = action;
-			return { ...state, slots: removeDeviceFromSlots(state.slots, deviceId) };
-		}
-
 		case "DELETE_DEVICE": {
 			const { deviceId } = action;
 			const slots = removeDeviceFromSlots(state.slots, deviceId);
@@ -285,17 +260,14 @@ function baseReducer(state, action) {
 		}
 
 		case "UPDATE_DEVICE": {
-			if (!state.devices[action.deviceId]) return state;
+			const dev = state.devices[action.deviceId];
+			if (!dev) return state;
 			const { u: _u, uH: _uH, ...safeFields } = action.fields ?? {};
+			const next = { ...dev, ...safeFields };
+			next.cat = keepShelfCat(dev, next.cat);
 			return {
 				...state,
-				devices: {
-					...state.devices,
-					[action.deviceId]: {
-						...state.devices[action.deviceId],
-						...safeFields,
-					},
-				},
+				devices: { ...state.devices, [action.deviceId]: next },
 			};
 		}
 
@@ -313,23 +285,23 @@ function baseReducer(state, action) {
 					l.libId === libId ? { ...l, ...fields } : l,
 				);
 			}
-			// Propagate display-only changes to already-placed instances.
+			// Propagate display-only changes to already-placed instances, shelved ones too.
 			// Size changes affect future placements only; slots remain the source of placed size.
+			const sync = (dev) =>
+				dev.libId === libId
+					? {
+							...dev,
+							name: fields.name,
+							cat: keepShelfCat(dev, fields.cat),
+							pwr: fields.pwr,
+							ports: fields.ports,
+						}
+					: dev;
 			const devices = Object.fromEntries(
-				Object.entries(state.devices).map(([id, dev]) =>
-					dev.libId === libId
-						? [
-								id,
-								{
-									...dev,
-									name: fields.name,
-									cat: fields.cat,
-									pwr: fields.pwr,
-									ports: fields.ports,
-								},
-							]
-						: [id, dev],
-				),
+				Object.entries(state.devices).map(([id, dev]) => {
+					const d = sync(dev);
+					return [id, d.shelved ? { ...d, shelved: d.shelved.map(sync) } : d];
+				}),
 			);
 			return { ...state, libOverrides, customLib, devices };
 		}
@@ -337,38 +309,16 @@ function baseReducer(state, action) {
 		// ── Shelf actions ─────────────────────────────────────────────────────────
 
 		case "PLACE_ON_SHELF": {
-			// device: full object (may or may not already be in state.devices)
+			// device: a new device (from the library), not yet in state.devices
 			const { shelfId, device } = action;
 			const shelf = state.devices[shelfId];
-			const ignoreId = state.devices[device?.id] ? device.id : null;
-			if (!device || !canPlaceOnShelf(shelf, device, ignoreId)) return state;
-			const newDevices = { ...state.devices };
-			if (newDevices[device.id]) delete newDevices[device.id]; // pull out of top-level if present
-			newDevices[shelfId] = {
-				...shelf,
-				shelved: [...(shelf.shelved ?? []), device],
-			};
-			return {
-				...state,
-				devices: newDevices,
-				slots: removeDeviceFromSlots(state.slots, device.id),
-				selId: state.selId === device.id ? null : state.selId,
-			};
-		}
-
-		case "LIFT_FROM_SHELF": {
-			// Removes from shelf's shelved[]; caller re-places via PLACE_DEVICE / PLACE_ON_SHELF
-			const { shelfId, deviceId } = action;
-			const shelf = state.devices[shelfId];
-			if (!shelf) return state;
+			if (!device || state.devices[device.id] || !canPlaceOnShelf(shelf, device))
+				return state;
 			return {
 				...state,
 				devices: {
 					...state.devices,
-					[shelfId]: {
-						...shelf,
-						shelved: (shelf.shelved ?? []).filter((it) => it.id !== deviceId),
-					},
+					[shelfId]: { ...shelf, shelved: [...(shelf.shelved ?? []), device] },
 				},
 			};
 		}
@@ -424,7 +374,7 @@ function mergeKey(action) {
 }
 
 // Wraps `reducer` with UNDO / REDO and BATCH (several actions, one undo step).
-// Selection changes and `skipHistory` actions update the present without an undo step.
+// Selection changes update the present without an undo step.
 export function historyReducer(h, action) {
 	if (action.type === "UNDO" || action.type === "REDO") {
 		const undo = action.type === "UNDO";
@@ -443,7 +393,7 @@ export function historyReducer(h, action) {
 			? action.actions.reduce(reducer, h.present)
 			: reducer(h.present, action);
 	if (present === h.present) return h;
-	if (action.skipHistory || action.type === "SELECT_DEVICE")
+	if (action.type === "SELECT_DEVICE")
 		return { ...h, present };
 	const key = mergeKey(action);
 	if (key && key === h.lastKey) return { ...h, present, future: [] };
@@ -502,6 +452,7 @@ export function AppProvider({ children }) {
 				dispatch,
 				canUndo: history.past.length > 0,
 				canRedo: history.future.length > 0,
+				saveError,
 			}}
 		>
 			{children}
