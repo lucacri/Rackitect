@@ -218,6 +218,7 @@ export function reducer(state, action) {
 				devices,
 				slots,
 				selId: state.selId === deviceId ? null : state.selId,
+				selIds: (state.selIds ?? []).filter((id) => id !== deviceId),
 			};
 		}
 
@@ -355,6 +356,7 @@ export function reducer(state, action) {
 				devices: {},
 				slots: Array.from({ length: state.rackSize }, mkSlot),
 				selId: null,
+				selIds: [],
 			};
 
 		default:
@@ -362,12 +364,64 @@ export function reducer(state, action) {
 	}
 }
 
+// ── Undo history ──────────────────────────────────────────────────────────────
+
+const HISTORY_CAP = 50;
+
+export const initHistory = (present) => ({
+	past: [],
+	present,
+	future: [],
+	lastKey: null,
+});
+
+// Typing in a field fires one action per keystroke: merge each run into one undo step
+function mergeKey(action) {
+	if (action.type === "SET_RACK_NAME" || action.type === "SET_POWER_CAP")
+		return action.type;
+	if (action.type === "UPDATE_DEVICE") return action.type + action.deviceId;
+	return null;
+}
+
+// Wraps `reducer` with UNDO / REDO and BATCH (several actions, one undo step).
+// Selection changes and `skipHistory` actions update the present without an undo step.
+export function historyReducer(h, action) {
+	if (action.type === "UNDO" || action.type === "REDO") {
+		const undo = action.type === "UNDO";
+		const from = undo ? h.past : h.future;
+		if (!from.length) return h;
+		const present = undo ? from.at(-1) : from[0];
+		return {
+			past: undo ? h.past.slice(0, -1) : [...h.past, h.present],
+			present,
+			future: undo ? [h.present, ...h.future] : h.future.slice(1),
+			lastKey: null,
+		};
+	}
+	const present =
+		action.type === "BATCH"
+			? action.actions.reduce(reducer, h.present)
+			: reducer(h.present, action);
+	if (present === h.present) return h;
+	if (action.skipHistory || action.type === "SELECT_DEVICE")
+		return { ...h, present };
+	const key = mergeKey(action);
+	if (key && key === h.lastKey) return { ...h, present, future: [] };
+	return {
+		past: [...h.past, h.present].slice(-HISTORY_CAP),
+		present,
+		future: [],
+		lastKey: key,
+	};
+}
+
 // ── Context + Provider ────────────────────────────────────────────────────────
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
-	const [state, dispatch] = useReducer(reducer, INIT);
+	const [history, dispatch] = useReducer(historyReducer, INIT, initHistory);
+	const state = history.present;
 
 	// Skip the very first save: on mount both effects fire in the same flush,
 	// so the save effect would run with the blank INIT state and overwrite
@@ -379,7 +433,11 @@ export function AppProvider({ children }) {
 		try {
 			const saved = localStorage.getItem("rackitect_v1");
 			if (!saved) return;
-			dispatch({ type: "LOAD", payload: JSON.parse(saved) });
+			dispatch({
+				type: "LOAD",
+				payload: JSON.parse(saved),
+				skipHistory: true,
+			});
 		} catch (_) {}
 	}, []);
 
@@ -395,7 +453,14 @@ export function AppProvider({ children }) {
 	}, [state]);
 
 	return (
-		<AppContext.Provider value={{ state, dispatch }}>
+		<AppContext.Provider
+			value={{
+				state,
+				dispatch,
+				canUndo: history.past.length > 0,
+				canRedo: history.future.length > 0,
+			}}
+		>
 			{children}
 		</AppContext.Provider>
 	);

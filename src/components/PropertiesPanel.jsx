@@ -367,8 +367,8 @@ function MultiSelection({ devices }) {
 			</div>
 			<div className="props-muted" style={{ fontSize: 11, margin: "8px 0" }}>
 				{isOneGroup
-					? "Drag any member to move the whole group."
-					: "Shift- or ⌘-click devices to add or remove them."}
+					? "Drag any member to move the whole group. G ungroups, Delete removes."
+					: "Shift- or ⌘-click devices to add or remove them. G groups, Delete removes."}
 			</div>
 			<div className="props-actions">
 				{isOneGroup ? (

@@ -372,3 +372,20 @@ export function swapMoves(state, aId, bId) {
 		{ id: bId, row: findRow(state.slots, aId) },
 	];
 }
+
+// Stable hue per group so neighbouring groups get distinct colours
+export function groupHue(groupId) {
+	let h = 0;
+	for (const ch of groupId) h = (h * 31 + ch.charCodeAt(0)) % 360;
+	return h;
+}
+
+// Selected rack device ids (multi-selection, else the single selection)
+export function selectedIds(state) {
+	const ids = state.selIds?.length
+		? state.selIds
+		: state.selId
+			? [state.selId]
+			: [];
+	return ids.filter((id) => state.devices[id]);
+}
