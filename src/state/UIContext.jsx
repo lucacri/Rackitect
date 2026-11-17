@@ -35,7 +35,9 @@ export function ModalProvider({ children }) {
 	const closeDevModal = useCallback(() => setDevModal(null), []);
 
 	const openConfirm = useCallback(
-		(msg, cb) => setConfirmModal({ msg, cb }),
+		// verb: what the confirm button says ("Remove", "Replace layout"); danger styles it red
+		(msg, cb, { verb = "Confirm", danger = true } = {}) =>
+			setConfirmModal({ msg, cb, verb, danger }),
 		[],
 	);
 	const closeConfirm = useCallback(() => setConfirmModal(null), []);
@@ -81,11 +83,10 @@ export function ToastProvider({ children }) {
 	return (
 		<ToastCtx.Provider value={toast}>
 			{children}
-			{msg && (
-				<div className="toast show" aria-live="polite">
-					{msg}
-				</div>
-			)}
+			{/* Always mounted: a live region that appears with its text is often not announced */}
+			<div className={"toast" + (msg ? " show" : "")} aria-live="polite">
+				{msg}
+			</div>
 		</ToastCtx.Provider>
 	);
 }

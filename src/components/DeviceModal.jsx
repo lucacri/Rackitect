@@ -171,8 +171,11 @@ export default function DeviceModal() {
 				<div className="modal-body">
 					{/* Name */}
 					<div className="form-row">
-						<label className="form-label">Name *</label>
+						<label className="form-label" htmlFor="dev-modal-name">
+							Name *
+						</label>
 						<input
+							id="dev-modal-name"
 							className="form-input"
 							type="text"
 							required
@@ -255,6 +258,7 @@ export default function DeviceModal() {
 									className="form-input"
 									type="text"
 									placeholder="e.g. C13, barrel"
+									aria-label="Power connector"
 									value={form?.pwrConn ?? ""}
 									onChange={(e) => set("pwrConn", e.target.value)}
 								/>
@@ -267,6 +271,7 @@ export default function DeviceModal() {
 									min={0}
 									step={1}
 									placeholder="0"
+									aria-label="Watts"
 									value={form?.pwrW ?? 0}
 									onChange={(e) => set("pwrW", e.target.value)}
 								/>
@@ -293,6 +298,7 @@ export default function DeviceModal() {
 									<select
 										className="form-select"
 										value={p.t}
+										aria-label="Port type"
 										onChange={(e) => updatePort(p._key, "t", e.target.value)}
 									>
 										{PORT_TYPES.map((pt) => (
@@ -309,11 +315,13 @@ export default function DeviceModal() {
 										value={p.n}
 										onChange={(e) => updatePort(p._key, "n", e.target.value)}
 										title="Port count"
+										aria-label="Port count"
 									/>
 									<input
 										className="form-input port-speed-input"
 										type="text"
 										placeholder="Speed (opt.)"
+										aria-label="Port speed"
 										value={p.s ?? ""}
 										onChange={(e) => updatePort(p._key, "s", e.target.value)}
 									/>

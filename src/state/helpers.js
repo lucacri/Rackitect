@@ -516,3 +516,26 @@ export function dropPlan(state, dev, row, swapWith = null) {
 	const up = insertMoves(s, at(row), true);
 	return fits(up) ? { kind: "insertUp", moves: up, row } : null;
 }
+
+// State where the selected devices (and their groups) form one temporary group,
+// so a drag or nudge moves the whole selection as a unit
+export function asSelGroup(state, ids) {
+	const all = new Set(
+		ids.flatMap((id) => [id, ...groupMembers(state, state.devices[id]?.groupId)]),
+	);
+	if (all.size < 2) return state;
+	const devices = { ...state.devices };
+	for (const id of all) devices[id] = { ...devices[id], groupId: "__sel__" };
+	return { ...state, devices };
+}
+
+// Plan for moving the selection one row up (delta -1) or down (+1); null if it can't move
+export function nudgePlan(state, ids, delta) {
+	if (!ids.length) return null;
+	const s = asSelGroup(state, ids);
+	const dev = s.devices[ids[0]];
+	const from = findRow(s.slots, ids[0]);
+	if (!dev || from < 0) return null;
+	const row = clampDropRow(s, dev, from + delta);
+	return row === from ? null : dropPlan(s, dev, row);
+}

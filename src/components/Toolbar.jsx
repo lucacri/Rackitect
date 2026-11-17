@@ -34,6 +34,7 @@ export default function Toolbar() {
 			openConfirm(
 				`Shrinking to ${newSize}U will remove: ${atRisk.map((d) => d.name).join(", ")}. Continue?`,
 				doResize,
+				{ verb: "Shrink rack" },
 			);
 			e.target.value = state.rackSize;
 		} else {
@@ -43,8 +44,10 @@ export default function Toolbar() {
 
 	function handleClear() {
 		if (!Object.keys(state.devices).length) return;
-		openConfirm("Remove all devices from the rack?", () =>
-			dispatch({ type: "CLEAR_RACK" }),
+		openConfirm(
+			"Remove all devices from the rack?",
+			() => dispatch({ type: "CLEAR_RACK" }),
+			{ verb: "Remove all" },
 		);
 	}
 
@@ -79,6 +82,7 @@ export default function Toolbar() {
 				openConfirm(
 					`Load "${parsed.rackName || "rack"}"? This will replace your current layout.`,
 					() => dispatch({ type: "LOAD", payload: parsed }),
+					{ verb: "Replace layout" },
 				);
 			} catch {
 				toast("Could not read file — is it a valid JSON export?");
@@ -95,6 +99,7 @@ export default function Toolbar() {
 			<div className="tb-sep" />
 			<input
 				className="rack-name-input"
+				aria-label="Rack name"
 				type="text"
 				value={state.rackName}
 				spellCheck={false}

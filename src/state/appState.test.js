@@ -774,3 +774,38 @@ describe("dropPlan edges", () => {
 		]);
 	});
 });
+
+describe("nudge and selection drag", () => {
+	const idAt = (s, r) => s.slots[r].items[0].id;
+	const rackOf = (rows) => {
+		let s = INIT;
+		for (const [lib, r] of rows) s = place(s, lib, r);
+		return s;
+	};
+	const apply = (s, plan) => reducer(s, { type: "MOVE_DEVICES", moves: plan.moves });
+
+	it("arrow nudges swap with the neighbour, hop a taller one, and stop at the edge", async () => {
+		const { nudgePlan } = await import("./helpers");
+		let s = rackOf([[oneU, 0], [oneU, 1], [twoU, 2]]);
+		const [a, b, two] = [idAt(s, 0), idAt(s, 1), idAt(s, 2)];
+		expect(nudgePlan(s, [a], -1)).toBeNull();
+		s = apply(s, nudgePlan(s, [a], 1));
+		expect([findRow(s.slots, b), findRow(s.slots, a)]).toEqual([0, 1]);
+		s = apply(s, nudgePlan(s, [a], 1));
+		expect([findRow(s.slots, two), findRow(s.slots, a)]).toEqual([1, 3]);
+		s = apply(s, nudgePlan(s, [a], -1));
+		expect([findRow(s.slots, a), findRow(s.slots, two)]).toEqual([1, 2]);
+	});
+
+	it("a multi-selection moves as one unit and leaves others alone", async () => {
+		const { asSelGroup, dropPlan, nudgePlan } = await import("./helpers");
+		let s = rackOf([[oneU, 0], [oneU, 2], [oneU, 5]]);
+		const [a, b, c] = [idAt(s, 0), idAt(s, 2), idAt(s, 5)];
+		const g = asSelGroup(s, [a, b]);
+		s = apply(s, dropPlan(g, g.devices[a], 3));
+		expect([a, b, c].map((id) => findRow(s.slots, id))).toEqual([3, 5, 2]); // c slides up into the freed rows
+		s = apply(s, nudgePlan(s, [a, b], -1));
+		expect([a, b].map((id) => findRow(s.slots, id))).toEqual([2, 4]);
+		expect(s.devices[a].groupId).toBeUndefined(); // the temporary group never reaches state
+	});
+});

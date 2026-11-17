@@ -48,6 +48,7 @@ function RackSummary() {
 				<span className="props-value">
 					<input
 						className="props-pwr-input"
+						aria-label="Power capacity (W)"
 						type="number"
 						min={0}
 						step={100}
@@ -82,8 +83,9 @@ function RackSummary() {
 							const { bg, fg } = CAT_COLORS[dev.cat] ?? CAT_COLORS.custom;
 							const row = findRow(state.slots, dev.id);
 							return (
-								<div
+								<button
 									key={dev.id}
+									type="button"
 									className="props-dev-row"
 									style={{ background: bg, color: fg }}
 									onClick={() =>
@@ -92,7 +94,7 @@ function RackSummary() {
 								>
 									<span className="props-dev-name">{dev.name}</span>
 									<span className="props-dev-pos">U{row + 1}</span>
-								</div>
+								</button>
 							);
 						})}
 					</div>
@@ -145,8 +147,10 @@ function DeviceDetail({ device }) {
 	}
 
 	function handleDelete() {
-		openConfirm(`Remove "${device.name}" from the rack?`, () =>
-			dispatch({ type: "DELETE_DEVICE", deviceId: device.id }),
+		openConfirm(
+			`Remove "${device.name}" from the rack?`,
+			() => dispatch({ type: "DELETE_DEVICE", deviceId: device.id }),
+			{ verb: "Remove" },
 		);
 	}
 
@@ -164,8 +168,11 @@ function DeviceDetail({ device }) {
 
 			{/* Name */}
 			<div className="props-field">
-				<label className="props-field-label">Name</label>
+				<label className="props-field-label" htmlFor="props-name">
+					Name
+				</label>
 				<input
+					id="props-name"
 					className="props-field-input"
 					type="text"
 					value={device.name}
@@ -220,6 +227,7 @@ function DeviceDetail({ device }) {
 							type="number"
 							min={0}
 							placeholder="Watts"
+							aria-label="Power draw (W)"
 							value={device.pwr?.w ?? 0}
 							onChange={(e) => setPwr({ w: +e.target.value })}
 							style={{ width: 72 }}
@@ -231,6 +239,7 @@ function DeviceDetail({ device }) {
 							className="props-field-input"
 							type="text"
 							placeholder="Connector"
+							aria-label="Power connector"
 							value={device.pwr?.conn ?? ""}
 							onChange={(e) => setPwr({ conn: e.target.value })}
 							style={{ flex: 1 }}
@@ -257,6 +266,7 @@ function DeviceDetail({ device }) {
 						<select
 							className="props-field-input"
 							value={p.t}
+							aria-label="Port type"
 							onChange={(e) => updatePort(i, "t", e.target.value)}
 							style={{ flex: 1, fontSize: 11, padding: "3px 5px" }}
 						>
@@ -272,6 +282,7 @@ function DeviceDetail({ device }) {
 							min={1}
 							max={96}
 							value={p.n}
+							aria-label="Port count"
 							onChange={(e) => updatePort(i, "n", e.target.value)}
 							style={{
 								width: 40,
@@ -285,6 +296,7 @@ function DeviceDetail({ device }) {
 							type="text"
 							placeholder="speed"
 							value={p.s ?? ""}
+							aria-label="Port speed"
 							onChange={(e) => updatePort(i, "s", e.target.value)}
 							style={{ width: 54, fontSize: 11, padding: "3px 4px" }}
 						/>
@@ -301,14 +313,22 @@ function DeviceDetail({ device }) {
 
 			{/* Notes */}
 			<div className="props-field">
-				<label className="props-field-label">Notes</label>
+				<label className="props-field-label" htmlFor="props-notes">
+					Notes
+				</label>
 				<textarea
+					id="props-notes"
 					className="props-field-input props-notes"
 					rows={2}
 					value={device.notes ?? ""}
 					onChange={(e) => set({ notes: e.target.value })}
 					placeholder="Optional notes…"
 				/>
+			</div>
+
+			<div className="props-muted" style={{ fontSize: 11, margin: "8px 0" }}>
+				↑/↓ moves it one row. Drag it to move it anywhere; hold Alt (⌥) while
+				dropping on another device to swap them.
 			</div>
 
 			{/* Actions */}
@@ -353,8 +373,8 @@ function MultiSelection({ devices }) {
 			</div>
 			<div className="props-muted" style={{ fontSize: 11, margin: "8px 0" }}>
 				{isOneGroup
-					? "Drag any member to move the whole group. G ungroups, Delete removes."
-					: "Shift- or ⌘-click devices to add or remove them. G groups, Delete removes."}
+					? "Drag any member or press ↑/↓ to move the whole group. G ungroups, Delete removes."
+					: "Shift- or ⌘-click devices to add or remove them. Drag or ↑/↓ moves them together. G groups, Delete removes."}
 			</div>
 			<div className="props-actions">
 				{isOneGroup ? (

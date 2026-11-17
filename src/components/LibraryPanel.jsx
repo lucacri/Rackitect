@@ -49,7 +49,7 @@ function LibraryItem({ lib, onEditClick }) {
         className="lib-add-btn"
         draggable={false}
         title="Add to first available slot"
-        tabIndex={-1}
+        aria-label={`Add ${lib.name} to the rack`}
         onClick={handleQuickAdd}
       >
         +
@@ -58,7 +58,6 @@ function LibraryItem({ lib, onEditClick }) {
         className="lib-edit-btn"
         draggable={false}
         title="Edit library entry"
-        tabIndex={-1}
         onClick={e => { e.stopPropagation(); onEditClick(lib) }}
       >
         {/* pencil icon */}

@@ -20,15 +20,15 @@ export default function App() {
                 <RackCanvas />
                 <PropertiesPanel />
               </div>
+              <footer className="app-footer">
+                <span>Built with love ❤️ by Lucacri</span>
+              </footer>
             </div>
             <DeviceModal />
             <ConfirmModal />
           </ToastProvider>
         </ModalProvider>
       </DragProvider>
-      <footer className="app-footer">
-        <span>Built with love ❤️ by Lucacri</span>
-      </footer>
     </AppProvider>
   )
 }

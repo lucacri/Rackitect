@@ -26,7 +26,7 @@ export default function ConfirmModal() {
 		>
 			<div className="modal-form" onClick={(e) => e.stopPropagation()}>
 				<div className="modal-header">
-					<h2 className="modal-title">Confirm</h2>
+					<h2 className="modal-title">{confirmModal?.verb ?? "Confirm"}</h2>
 				</div>
 				<div className="modal-body">
 					<p className="confirm-msg">{confirmModal?.msg}</p>
@@ -35,8 +35,11 @@ export default function ConfirmModal() {
 					<button className="btn" onClick={closeConfirm}>
 						Cancel
 					</button>
-					<button className="btn btn-danger" onClick={doConfirm}>
-						Confirm
+					<button
+						className={"btn " + (confirmModal?.danger ? "btn-danger" : "btn-primary")}
+						onClick={doConfirm}
+					>
+						{confirmModal?.verb ?? "Confirm"}
 					</button>
 				</div>
 			</div>
