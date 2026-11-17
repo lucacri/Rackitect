@@ -345,6 +345,7 @@ export function placeDeviceInSlots(slots, device, rowIndex) {
 // Lift every device in `moves` ([{ id, row }]), then re-place each at its new row.
 // Returns the new slots, or null if any device would not fit.
 export function planMoves(state, moves) {
+	if (!moves) return null;
 	let slots = state.slots;
 	for (const { id } of moves) slots = removeDeviceFromSlots(slots, id);
 	for (const { id, row } of moves) {
@@ -405,34 +406,58 @@ export function selectedIds(state) {
 
 // Moves that put `moving` ([{ id, row }]) in place and push the devices from the
 // insert row down by the moving block's height, only as far as the first free gap
-// (so moving a device up reorders instead of leaving a hole).
-export function insertMoves(state, moving) {
+// (so moving a device up reorders instead of leaving a hole). With `up`, the
+// devices from the nearest free gap above down to the moving block are pushed up.
+// Returns null when the block is off the rack or (`up`) there is no gap above.
+export function insertMoves(state, moving, up = false) {
 	const ids = new Set(moving.map((m) => m.id));
 	const uH = (id) => state.devices[id]?.uH ?? 1;
 	const top = Math.min(...moving.map((m) => m.row));
 	const h = Math.max(...moving.map((m) => m.row + uH(m.id))) - top;
+	if (top < 0 || top + h > state.rackSize) return null;
 	let lifted = state.slots;
 	for (const id of ids) lifted = removeDeviceFromSlots(lifted, id);
 	const empty = (r) => !lifted[r].spanOf && lifted[r].items.length === 0;
-	let gap = state.rackSize; // no gap → push everything (overflow is refused later)
-	for (let r = top; r + h <= state.rackSize; r++) {
-		if (Array.from({ length: h }, (_, i) => empty(r + i)).every(Boolean)) {
+	const isGap = (r) => Array.from({ length: h }, (_, i) => empty(r + i)).every(Boolean);
+	let gap = up ? -1 : state.rackSize; // down, no gap → push everything (overflow is refused later)
+	for (let r = top; up ? r >= 0 : r + h <= state.rackSize; r += up ? -1 : 1) {
+		if (isGap(r)) {
 			gap = r;
 			break;
 		}
 	}
+	if (up && gap < 0) return null;
 	const pushed = Object.keys(state.devices)
 		.filter((id) => !ids.has(id))
 		.map((id) => ({ id, row: findRow(state.slots, id) }))
-		.filter((m) => m.row >= top && m.row < gap)
-		.map((m) => ({ ...m, row: m.row + h }));
+		.filter((m) =>
+			up ? m.row >= gap && m.row < top + h : m.row >= top && m.row < gap,
+		)
+		.map((m) => ({ ...m, row: m.row + (up ? -h : h) }));
 	return [...pushed, ...moving];
 }
 
-// Slots after inserting a not-yet-placed `device` at `row`, or null if it can't go there
+// Slots after inserting a not-yet-placed `device` at `row` (pushing down, else up),
+// or null if it can't go there. Same order as dropPlan, so the drop matches its preview.
 export function insertPlan(state, device, row) {
 	const s = { ...state, devices: { ...state.devices, [device.id]: device } };
-	return planMoves(s, insertMoves(s, [{ id: device.id, row }]));
+	const at = [{ id: device.id, row }];
+	return planMoves(s, insertMoves(s, at)) ?? planMoves(s, insertMoves(s, at, true));
+}
+
+// Clamp a drop row so the dragged device, and every member of its group, stays in the rack
+export function clampDropRow(state, dev, row) {
+	const from = findRow(state.slots, dev.id);
+	const parts =
+		from >= 0 && groupMembers(state, dev.groupId).length > 1
+			? groupMoves(state, dev.id, from).map((m) => ({
+					off: m.row - from,
+					h: state.devices[m.id].uH,
+				}))
+			: [{ off: 0, h: dev.uH }];
+	const lo = -Math.min(...parts.map((p) => p.off));
+	const hi = state.rackSize - Math.max(...parts.map((p) => p.off + p.h));
+	return Math.max(lo, Math.min(hi, row));
 }
 
 // Moving a block down: the devices it passes over slide up into the space it left.
@@ -456,8 +481,10 @@ function pullUpMoves(state, moving) {
  * rack (library or shelf item). Grouped rack devices bring their group.
  * Tries, in order: a plain move; when moving down, sliding the passed-over
  * devices up (also one row lower, for landing on the top half of a taller
- * device); inserting and pushing devices down. With `swapWith` it only swaps.
- * Returns { kind: "move"|"reorder"|"insert"|"swap", moves, row } or null.
+ * device); inserting and pushing devices down (also at the top of a taller
+ * device whose lower half is under `row`); inserting and pushing devices up.
+ * With `swapWith` it only swaps.
+ * Returns { kind: "move"|"reorder"|"insert"|"insertUp"|"swap", moves, row } or null.
  */
 export function dropPlan(state, dev, row, swapWith = null) {
 	const s = state.devices[dev.id]
@@ -466,7 +493,7 @@ export function dropPlan(state, dev, row, swapWith = null) {
 	const fromRow = findRow(s.slots, dev.id);
 	const grouped = fromRow >= 0 && groupMembers(s, dev.groupId).length > 1;
 	const at = (r) => (grouped ? groupMoves(s, dev.id, r) : [{ id: dev.id, row: r }]);
-	const fits = (moves) => moves && planMoves(s, moves);
+	const fits = (moves) => planMoves(s, moves);
 
 	if (swapWith) {
 		if (grouped || fromRow < 0 || swapWith === dev.id) return null;
@@ -479,6 +506,13 @@ export function dropPlan(state, dev, row, swapWith = null) {
 		const moves = pullUpMoves(s, at(r));
 		if (fits(moves)) return { kind: "reorder", moves, row: r };
 	}
-	const moves = insertMoves(s, at(row));
-	return fits(moves) ? { kind: "insert", moves, row } : null;
+	const span = s.slots[row]?.spanOf;
+	const ids = new Set(at(row).map((m) => m.id));
+	const rows = span && !ids.has(span.id) ? [row, row - span.offset] : [row];
+	for (const r of rows) {
+		const moves = insertMoves(s, at(r));
+		if (fits(moves)) return { kind: "insert", moves, row: r };
+	}
+	const up = insertMoves(s, at(row), true);
+	return fits(up) ? { kind: "insertUp", moves: up, row } : null;
 }

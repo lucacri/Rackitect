@@ -355,9 +355,6 @@ html, body, #root {
 
 .rack-row:last-child { border-bottom: none; }
 
-.rack-row[data-drop-state="valid"]   { background: #0d2a1a; outline: 1px inset #27ae60; }
-.rack-row[data-drop-state="invalid"] { background: #2a0d0d; outline: 1px inset #c0392b; }
-
 .rack-span {
   height: var(--row-h);
   background: transparent;
@@ -1138,38 +1135,10 @@ html, body, #root {
 .dev-tile.in-group { box-shadow: inset 0 0 0 2px var(--grp), inset 6px 0 0 var(--grp); padding-left: 12px; }
 .dev-tile.in-group.is-selected { outline: 2px dashed #fff; }
 
-/* Drag: the tile a drop would swap with */
-.dev-tile.swap-target { outline: 2px dashed #f1c40f; outline-offset: -2px; filter: brightness(1.3); z-index: 3; }
-.dev-tile.swap-target::after {
-  content: "⇄";
-  position: absolute;
-  top: 2px;
-  right: 6px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #f1c40f;
-  text-shadow: 0 0 3px #000;
-}
-
 .btn:disabled { opacity: .35; cursor: default; }
-
-/* Drop on a full row: insert here and push the rows below down */
-.rack-row[data-drop-state="insert"] { box-shadow: inset 0 3px 0 #4aa3ff; background: #0d1a2a; }
 
 .tb-save { font-size: 11px; color: #7fbf8f; margin-right: 8px; white-space: nowrap; }
 .tb-save.is-error { color: #ff8a7a; font-weight: 700; }
-
-/* Drag preview: where each affected device will land */
-.rack-slots { position: relative; }
-.drop-ghost {
-  position: absolute; left: 0; right: 0; z-index: 5; pointer-events: none;
-  top: calc(var(--row-h) * var(--r)); height: calc(var(--row-h) * var(--h));
-  border-radius: 3px; display: flex; align-items: center; padding: 0 8px;
-  font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000;
-}
-.drop-ghost.is-main    { background: rgba(74, 163, 255, .28); border: 2px solid #4aa3ff; }
-.drop-ghost.is-moved   { background: rgba(255, 210, 74, .12); border: 2px dashed #ffd24a; }
-.drop-ghost.is-invalid { background: rgba(192, 57, 43, .28); border: 2px solid #c0392b; }
 
 /* Drag preview: where each affected device will land */
 .rack-slots { position: relative; }

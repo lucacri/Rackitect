@@ -728,3 +728,49 @@ describe("audit fixes", () => {
 		expect(ctx).toHaveProperty("saveError", false);
 	});
 });
+
+describe("dropPlan edges", () => {
+	const idAt = (s, r) => s.slots[r].items[0].id;
+	const rackOf = (size, rows) => {
+		let s = reducer(INIT, { type: "SET_RACK_SIZE", newSize: size });
+		for (const [lib, r] of rows) s = place(s, lib, r);
+		return s;
+	};
+
+	it("clamps a group drag at the top and bottom instead of throwing", async () => {
+		const { clampDropRow, dropPlan } = await import("./helpers");
+		let s = rackOf(12, [[oneU, 0], [oneU, 2]]);
+		const [a, b] = [idAt(s, 0), idAt(s, 2)];
+		s = reducer(s, { type: "GROUP_DEVICES", ids: [a, b] });
+		expect(clampDropRow(s, s.devices[b], 0)).toBe(2); // a would land at -2
+		expect(clampDropRow(s, s.devices[a], 11)).toBe(9); // b would land at 13
+		expect(() => dropPlan(s, s.devices[b], 0)).not.toThrow();
+		const plan = dropPlan(s, s.devices[a], clampDropRow(s, s.devices[a], 11));
+		expect(plan.kind).toBe("move");
+		const { insertMoves } = await import("./helpers");
+		expect(insertMoves(s, [{ id: a, row: -2 }])).toBeNull();
+	});
+
+	it("moving up onto the lower half of a taller device inserts above it", async () => {
+		const { dropPlan } = await import("./helpers");
+		let s = rackOf(12, [[twoU, 0], [oneU, 2]]);
+		const [two, one] = [idAt(s, 0), idAt(s, 2)];
+		const plan = dropPlan(s, s.devices[one], 1);
+		expect(plan).toMatchObject({ kind: "insert", row: 0 });
+		s = reducer(s, { type: "MOVE_DEVICES", moves: plan.moves });
+		expect([findRow(s.slots, one), findRow(s.slots, two)]).toEqual([0, 1]);
+	});
+
+	it("a library drop uses free rows above when the rows below are full", async () => {
+		const { dropPlan } = await import("./helpers");
+		let s = rackOf(8, [[oneU, 4], [oneU, 5], [oneU, 6], [oneU, 7]]);
+		const ids = [4, 5, 6, 7].map((r) => idAt(s, r));
+		const dev = deviceFromLib(oneU);
+		const plan = dropPlan(s, dev, 7);
+		expect(plan).toMatchObject({ kind: "insertUp", row: 7 });
+		s = reducer(s, { type: "INSERT_DEVICE", device: dev, rowIndex: plan.row });
+		expect([...ids, dev.id].map((id) => findRow(s.slots, id))).toEqual([
+			3, 4, 5, 6, 7,
+		]);
+	});
+});

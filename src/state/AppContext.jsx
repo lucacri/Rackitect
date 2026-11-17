@@ -116,7 +116,7 @@ function baseReducer(state, action) {
 		}
 
 		case "INSERT_DEVICE": {
-			// Place a new device on a full row, pushing the rows below down
+			// Place a new device on a full row, pushing rows down (or up when there is no room below)
 			const { device, rowIndex } = action;
 			if (!device || state.devices[device.id]) return state;
 			const slots = insertPlan(state, device, rowIndex);

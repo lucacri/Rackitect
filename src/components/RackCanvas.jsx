@@ -4,6 +4,7 @@ import { useDrag, useModal, useToast } from "../state/UIContext";
 import { CAT_COLORS, MAX_U, PORT_LBL } from "../data/constants";
 import {
 	canPlaceOnShelf,
+	clampDropRow,
 	findRow,
 	deviceFromLib,
 	getEffectiveLib,
@@ -67,8 +68,35 @@ const DROP_LABEL = {
 	move: "Move here",
 	reorder: "Move here — others slide up",
 	insert: "Insert — others pushed down",
+	insertUp: "Insert — others pushed up",
 	swap: "Swap",
 };
+
+// Start a move drag (rack tile, shelf label or shelf item); the source fades until it ends
+function startMove(e, setDrag, drag) {
+	e.stopPropagation();
+	setDrag(drag);
+	e.dataTransfer.effectAllowed = "move";
+	e.dataTransfer.setData("text/plain", drag.devId);
+	const el = e.target;
+	setTimeout(() => {
+		el.style.opacity = ".25";
+	}, 0);
+}
+
+function endMove(e, setDrag) {
+	e.target.style.opacity = "";
+	setDrag(null);
+}
+
+function startRackDrag(e, setDrag, state, device) {
+	startMove(e, setDrag, {
+		src: "rack",
+		devId: device.id,
+		fromRow: findRow(state.slots, device.id),
+		grab: grabRow(e, device),
+	});
+}
 
 const isAdditive = (e) => e.shiftKey || e.metaKey || e.ctrlKey;
 
@@ -92,27 +120,15 @@ function ShelfItem({ dev, shelfId, dispatch }) {
 	const { bg, fg } = CAT_COLORS[dev.cat] ?? CAT_COLORS.custom;
 	const pb = pwrBadge(dev.pwr);
 
-	function handleDragStart(e) {
-		e.stopPropagation();
-		setDrag({ src: "shelf", devId: dev.id, shelfId });
-		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("text/plain", dev.id);
-		setTimeout(() => {
-			if (e.target) e.target.style.opacity = ".25";
-		}, 0);
-	}
-	function handleDragEnd(e) {
-		if (e.target) e.target.style.opacity = "";
-		setDrag(null);
-	}
-
 	return (
 		<div
 			className="shelf-item"
 			style={{ flex: dev.u, background: bg, color: fg }}
 			draggable
-			onDragStart={handleDragStart}
-			onDragEnd={handleDragEnd}
+			onDragStart={(e) =>
+				startMove(e, setDrag, { src: "shelf", devId: dev.id, shelfId })
+			}
+			onDragEnd={(e) => endMove(e, setDrag)}
 			title={dev.name}
 		>
 			<span className="shelf-item-name">{dev.name}</span>
@@ -142,16 +158,9 @@ function ShelfInner({ shelf }) {
 	const { state, dispatch } = useApp();
 	const toast = useToast();
 
-	function previewDev() {
-		return resolveDragDev(drag, state);
-	}
-
 	function dropOk(ignoreId) {
-		if (!drag) return false;
-		const dev = previewDev();
-		if (!dev) return false;
-		if (dev.uH > 1 || dev.cat === "shelf") return false;
-		return canPlaceOnShelf(shelf, dev, ignoreId);
+		const dev = resolveDragDev(drag, state);
+		return !!dev && canPlaceOnShelf(shelf, dev, ignoreId);
 	}
 
 	function handleDragOver(e) {
@@ -160,7 +169,8 @@ function ShelfInner({ shelf }) {
 			drag?.src === "shelf" && drag.shelfId === shelf.id ? drag.devId : null;
 		const ok = dropOk(ignoreId);
 		e.currentTarget.dataset.dropState = ok ? "valid" : "invalid";
-		e.dataTransfer.dropEffect = ok ? "copy" : "none";
+		// Must be allowed by the drag's effectAllowed ("move" for rack/shelf drags) or the drop never fires
+		e.dataTransfer.dropEffect = !ok ? "none" : drag.src === "lib" ? "copy" : "move";
 	}
 
 	function handleDragLeave(e) {
@@ -265,20 +275,6 @@ function ShelfTile({ device, units, isSelected, isMultiU, onSelect }) {
 		...(isMultiU ? { "--span": device.uH } : {}),
 	};
 
-	function handleDragStart(e) {
-		const fromRow = findRow(state.slots, device.id);
-		setDrag({ src: "rack", devId: device.id, fromRow, grab: grabRow(e, device) });
-		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("text/plain", device.id);
-		setTimeout(() => {
-			if (e.target) e.target.style.opacity = ".25";
-		}, 0);
-	}
-	function handleDragEnd(e) {
-		if (e.target) e.target.style.opacity = "";
-		setDrag(null);
-	}
-
 	return (
 		<div
 			className={cls}
@@ -294,8 +290,8 @@ function ShelfTile({ device, units, isSelected, isMultiU, onSelect }) {
 			<div
 				className="shelf-label"
 				draggable
-				onDragStart={handleDragStart}
-				onDragEnd={handleDragEnd}
+				onDragStart={(e) => startRackDrag(e, setDrag, state, device)}
+				onDragEnd={(e) => endMove(e, setDrag)}
 			>
 				{device.name}
 			</div>
@@ -332,22 +328,6 @@ function DeviceTile({ device, units, isSelected, isMultiU, onSelect }) {
 		...(isMultiU ? { "--span": device.uH } : {}),
 	};
 
-	function handleDragStart(e) {
-		e.stopPropagation();
-		const fromRow = findRow(state.slots, device.id);
-		setDrag({ src: "rack", devId: device.id, fromRow, grab: grabRow(e, device) });
-		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("text/plain", device.id);
-		setTimeout(() => {
-			if (e.target) e.target.style.opacity = ".25";
-		}, 0);
-	}
-
-	function handleDragEnd(e) {
-		if (e.target) e.target.style.opacity = "";
-		setDrag(null);
-	}
-
 	return (
 		<div
 			className={cls}
@@ -358,8 +338,8 @@ function DeviceTile({ device, units, isSelected, isMultiU, onSelect }) {
 				e.stopPropagation();
 				onSelect(device.id, isAdditive(e));
 			}}
-			onDragStart={handleDragStart}
-			onDragEnd={handleDragEnd}
+			onDragStart={(e) => startRackDrag(e, setDrag, state, device)}
+			onDragEnd={(e) => endMove(e, setDrag)}
 			title={device.name}
 		>
 			{/* Row 1 — always visible */}
@@ -457,10 +437,7 @@ export default function RackCanvas() {
 		const pointer = Math.floor(
 			(e.clientY - rect.top) / (rect.height / state.rackSize),
 		);
-		const row = Math.max(
-			0,
-			Math.min(state.rackSize - dev.uH, pointer - (drag.grab ?? 0)),
-		);
+		const row = clampDropRow(state, dev, pointer - (drag.grab ?? 0));
 		const swapWith = e.altKey && drag.src === "rack" ? tileUnder(e) : null;
 		if (drag.src === "rack" && row === drag.fromRow && !swapWith)
 			return { dev, row, same: true };
