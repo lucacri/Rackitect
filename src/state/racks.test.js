@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { findRow, normalizeState } from "./helpers";
+import { findRow, normalizeState, placeDeviceInSlots } from "./helpers";
 import {
 	clampSize,
+	crossRackPlan,
 	firstFreeSpot,
 	mkRack,
 	rackOf,
@@ -128,5 +129,76 @@ describe("racks", () => {
 		expect(rackOf(s, "a")).toBe("r2");
 		expect(firstFreeSpot(s, dev)).toEqual({ rackId: "r1", row: 0 });
 		expect(mkRack("X", 3).slots).toHaveLength(3);
+	});
+
+	describe("crossRackPlan", () => {
+		const twoU = { ...oneU, uH: 2 };
+		// rack r1 (12U) and r2 (12U); place maps id -> [rackId, row]
+		const setup = (devs, place) => {
+			const empty = () => Array.from({ length: 12 }, () => ({ items: [], spanOf: null }));
+			const slots = { r1: empty(), r2: empty() };
+			const devices = {};
+			for (const [id, d] of Object.entries(devs)) devices[id] = { ...d, id };
+			for (const [id, [rid, row]] of Object.entries(place))
+				slots[rid] = placeDeviceInSlots(slots[rid], devices[id], row);
+			return normalizeState({
+				devices,
+				racks: [
+					{ id: "r1", name: "A", size: 12, slots: slots.r1 },
+					{ id: "r2", name: "B", size: 12, slots: slots.r2 },
+				],
+			});
+		};
+
+		it("moves a single device into an empty spot in another rack", () => {
+			const s = setup({ a: oneU }, { a: ["r1", 3] });
+			const p = crossRackPlan(s, "r1", "r2", s.devices.a, 7);
+			expect(p).toEqual({ kind: "move", moves: [{ id: "a", row: 7 }], row: 7 });
+		});
+
+		it("moves a group as one block keeping offsets", () => {
+			const s = setup(
+				{ a: { ...oneU, groupId: "g" }, b: { ...twoU, groupId: "g" } },
+				{ a: ["r1", 0], b: ["r1", 1] },
+			);
+			const p = crossRackPlan(s, "r1", "r2", s.devices.a, 5);
+			expect(p.kind).toBe("move");
+			expect(p.moves).toEqual(
+				expect.arrayContaining([
+					{ id: "a", row: 5 },
+					{ id: "b", row: 6 },
+				]),
+			);
+			expect(p.moves).toHaveLength(2);
+			// clamped so the 3U block fits the bottom of the target
+			expect(crossRackPlan(s, "r1", "r2", s.devices.a, 11).row).toBe(9);
+		});
+
+		it("inserts and pushes target devices down when the row is taken", () => {
+			const s = setup({ a: oneU, t: twoU }, { a: ["r1", 0], t: ["r2", 4] });
+			const p = crossRackPlan(s, "r1", "r2", s.devices.a, 4);
+			expect(p.kind).toBe("insert");
+			expect(p.moves).toEqual(
+				expect.arrayContaining([
+					{ id: "a", row: 4 },
+					{ id: "t", row: 5 },
+				]),
+			);
+		});
+
+		it("refuses a group that does not fit", () => {
+			const devs = { a: { ...twoU, groupId: "g" }, b: { ...twoU, groupId: "g" } };
+			const place = { a: ["r1", 0], b: ["r1", 2] };
+			for (let i = 0; i < 12; i++) {
+				if (i === 4) continue;
+				devs[`f${i}`] = oneU;
+				place[`f${i}`] = ["r2", i];
+			}
+			const s = setup(devs, place); // r2 has only one free row (4)
+			const before = JSON.stringify(s);
+			expect(crossRackPlan(s, "r1", "r2", s.devices.a, 4)).toBeNull();
+			expect(JSON.stringify(s)).toBe(before);
+			expect(crossRackPlan(s, "r1", "nope", s.devices.a, 4)).toBeNull();
+		});
 	});
 });

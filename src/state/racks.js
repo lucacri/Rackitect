@@ -1,5 +1,15 @@
 import { MAX_RACK } from "../data/constants";
-import { findFirstSlot, findRow, mkSlot, uid } from "./helpers";
+import {
+	clampDropRow,
+	findFirstSlot,
+	findRow,
+	groupMembers,
+	groupMoves,
+	insertMoves,
+	mkSlot,
+	planMoves,
+	uid,
+} from "./helpers";
 
 export function mkRack(name, size) {
 	return { id: uid(), name, size, slots: Array.from({ length: size }, mkSlot) };
@@ -37,4 +47,25 @@ export function firstFreeSpot(state, dev) {
 		if (row >= 0) return { rackId: r.id, row };
 	}
 	return null;
+}
+
+/**
+ * What happens if rack device `dev` (with its group, members in the source rack)
+ * is dragged from one rack and dropped with its top on `row` in another. The block
+ * keeps its offsets and is clamped to fit the target. Tries a plain move, then
+ * inserting and pushing target devices down, then up.
+ * Returns { kind: "move"|"insert"|"insertUp", moves, row } or null.
+ */
+export function crossRackPlan(state, fromRackId, toRackId, dev, row) {
+	const src = rackView(state, fromRackId);
+	const dst = rackView(state, toRackId);
+	if (!src || !dst || findRow(src.slots, dev.id) < 0) return null;
+	const grouped = groupMembers(src, dev.groupId).length > 1;
+	const r = clampDropRow({ ...src, rackSize: dst.rackSize }, dev, row);
+	const moves = grouped ? groupMoves(src, dev.id, r) : [{ id: dev.id, row: r }];
+	if (planMoves(dst, moves)) return { kind: "move", moves, row: r };
+	const down = insertMoves(dst, moves);
+	if (planMoves(dst, down)) return { kind: "insert", moves: down, row: r };
+	const up = insertMoves(dst, moves, true);
+	return planMoves(dst, up) ? { kind: "insertUp", moves: up, row: r } : null;
 }
