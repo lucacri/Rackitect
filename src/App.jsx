@@ -6,6 +6,7 @@ import RackCanvas    from './components/RackCanvas'
 import PropertiesPanel from './components/PropertiesPanel'
 import DeviceModal   from './components/DeviceModal'
 import ConfirmModal  from './components/ConfirmModal'
+import PrintSheet    from './components/PrintSheet'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             </div>
             <DeviceModal />
             <ConfirmModal />
+            <PrintSheet />
           </ToastProvider>
         </ModalProvider>
       </DragProvider>

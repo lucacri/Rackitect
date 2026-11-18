@@ -145,6 +145,13 @@ export default function Toolbar() {
 			>
 				↓ Export
 			</button>
+			<button
+				className="btn btn-sm"
+				onClick={() => window.print()}
+				title="Print one letter page per rack, to keep next to you while building"
+			>
+				⎙ Print
+			</button>
 			<div className="tb-sep" />
 			<button
 				className="btn btn-primary btn-sm"
