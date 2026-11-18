@@ -39,6 +39,8 @@ html, body, #root {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
+/* Two or more racks side by side: use the whole screen so they fit without scrolling */
+.app-shell:has(.racks.is-side .rack-card + .rack-card) { max-width: none; }
 
 .app-body {
   display: flex;
