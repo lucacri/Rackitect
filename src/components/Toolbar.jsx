@@ -3,6 +3,7 @@ import { useApp } from "../state/AppContext";
 import { useModal } from "../state/UIContext";
 import { useToast } from "../state/UIContext";
 import { normalizeState } from "../state/helpers";
+import { readShareHash, shareUrl } from "../state/share";
 
 export default function Toolbar() {
 	const { state, dispatch, canUndo, canRedo, saveError } = useApp();
@@ -14,6 +15,37 @@ export default function Toolbar() {
 	useEffect(() => {
 		document.title = (rackName || "Rack") + " — Rackitect";
 	}, [rackName]);
+
+	// Opened from a share link: offer to load it, then drop the hash so a reload doesn't ask again
+	useEffect(() => {
+		const hash = location.hash;
+		if (!hash.startsWith("#r=")) return;
+		// cleared before the async decode, so StrictMode's second run finds nothing
+		history.replaceState(null, "", location.pathname + location.search);
+		readShareHash(hash)
+			.then((shared) => {
+				if (!shared) return;
+				openConfirm(
+					`Load shared "${shared.racks[0].name || "rack"}"? This will replace your current layout.`,
+					() => dispatch({ type: "LOAD", payload: shared }),
+					{ verb: "Replace layout" },
+				);
+			})
+			.catch(() => {
+				toast("Could not read that share link — it may be cut off");
+			});
+	}, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+	async function handleShare() {
+		const url = await shareUrl(state);
+		try {
+			if (navigator.share) return await navigator.share({ title: rackName || "Rack", url });
+			await navigator.clipboard.writeText(url);
+			toast("Link copied — open it on another device to continue there");
+		} catch (err) {
+			if (err?.name !== "AbortError") toast("Could not share the link");
+		}
+	}
 
 	function handleClear() {
 		if (!Object.keys(state.devices).length) return;
@@ -151,6 +183,13 @@ export default function Toolbar() {
 				title="Print one letter page per rack, to keep next to you while building"
 			>
 				⎙ Print
+			</button>
+			<button
+				className="btn btn-sm"
+				onClick={handleShare}
+				title="Share a link holding this layout — open it on your phone to keep working there"
+			>
+				⇪ Share
 			</button>
 			<div className="tb-sep" />
 			<button
