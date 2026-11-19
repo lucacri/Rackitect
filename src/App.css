@@ -733,6 +733,9 @@ html, body, #root {
 }
 .props-port-remove:hover { color: var(--danger); border-color: var(--danger); }
 
+.props-move { display: flex; gap: 6px; margin-bottom: 8px; }
+.props-move .btn { flex: 1; justify-content: center; }
+
 .props-actions {
   margin-top: 16px;
   padding-top: 12px;
@@ -1198,6 +1201,33 @@ html, body, #root {
 
 /* Rack rows listed in the properties panel are buttons */
 button.props-dev-row { width: 100%; border: none; font: inherit; font-weight: 600; text-align: left; }
+
+/* ── Phone: one panel at a time, picked by the tabs ───────────────────────── */
+
+.phone-tabs { display: none; }
+
+@media (max-width: 760px) {
+  .toolbar { overflow-x: auto; white-space: nowrap; padding: 0 10px; scrollbar-width: none; }
+  .toolbar > * { flex-shrink: 0; }
+  .toolbar .tb-spacer { flex: 0 0 4px; }
+  .phone-tabs { display: flex; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .phone-tabs button {
+    flex: 1; padding: 10px 0; font: inherit; font-weight: 600; color: var(--text-muted);
+    background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+  }
+  .phone-tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .app-body[data-tab="rack"] > :not(.panel-center),
+  .app-body[data-tab="library"] > :not(.panel-left),
+  .app-body[data-tab="details"] > :not(.panel-right) { display: none; }
+  .panel-left, .panel-right { width: 100%; border: none; }
+  .panel-center { padding: 12px 8px; }
+  .rack-chassis { width: calc(100vw - 56px); }
+  .lib-item { padding-top: 8px; padding-bottom: 8px; }
+  .lib-add-btn, .lib-edit-btn { opacity: 1; }
+  /* 16px stops iOS Safari zooming into inputs */
+  input, select, textarea { font-size: 16px !important; }
+  .app-footer, .props-desk-hint { display: none; }
+}
 
 /* ── Print sheet (one letter page per rack) ───────────────────────────────── */
 

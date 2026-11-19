@@ -7,6 +7,7 @@ import {
 	groupMoves,
 	insertMoves,
 	mkSlot,
+	nudgePlan,
 	planMoves,
 	uid,
 } from "./helpers";
@@ -92,4 +93,13 @@ export function shrinkLoss(state, rackId, newSize) {
 		const r = findRow(view.slots, d.id);
 		return r >= 0 && r + d.uH > newSize;
 	});
+}
+
+// Move the selected devices one row (delta -1 up, +1 down), inside the first one's rack
+export function nudgeAction(state, ids, delta) {
+	const rackId = rackOf(state, ids[0]);
+	const view = rackView(state, rackId);
+	if (!view) return null;
+	const plan = nudgePlan(view, ids.filter((id) => findRow(view.slots, id) >= 0), delta);
+	return plan ? { type: "MOVE_DEVICES", rackId, moves: plan.moves } : null;
 }

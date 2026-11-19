@@ -8,7 +8,7 @@ import {
 	PWR_TYPES,
 } from "../data/constants";
 import { rackSummary, findRow, uid } from "../state/helpers";
-import { rackOf, rackView } from "../state/racks";
+import { nudgeAction, rackOf, rackView } from "../state/racks";
 
 // ── Rack summary view (nothing selected) ─────────────────────────────────────
 
@@ -130,8 +130,16 @@ function RackSummary() {
 // ── Device detail — inline edit form ─────────────────────────────────────────
 
 function DeviceDetail({ device }) {
-	const { dispatch } = useApp();
+	const { state, dispatch } = useApp();
 	const { openConfirm } = useModal();
+	const toast = useToast();
+	const inRack = !!rackOf(state, device.id);
+
+	function nudge(delta) {
+		const action = nudgeAction(state, [device.id], delta);
+		if (action) dispatch(action);
+		else toast(delta < 0 ? "No room above" : "No room below");
+	}
 	const { bg, fg } = CAT_COLORS[device.cat] ?? CAT_COLORS.custom;
 
 	function set(fields) {
@@ -343,13 +351,23 @@ function DeviceDetail({ device }) {
 				/>
 			</div>
 
-			<div className="props-muted" style={{ fontSize: 11, margin: "8px 0" }}>
+			<div className="props-muted props-desk-hint" style={{ fontSize: 11, margin: "8px 0" }}>
 				↑/↓ moves it one row. Drag it to move it anywhere; hold Alt (⌥) while
 				dropping on another device to swap them.
 			</div>
 
 			{/* Actions */}
 			<div className="props-actions">
+				{inRack && (
+					<div className="props-move">
+						<button className="btn btn-sm" onClick={() => nudge(-1)}>
+							▲ Move up
+						</button>
+						<button className="btn btn-sm" onClick={() => nudge(1)}>
+							▼ Move down
+						</button>
+					</div>
+				)}
 				<button
 					className="btn btn-danger btn-sm"
 					style={{ width: "100%" }}

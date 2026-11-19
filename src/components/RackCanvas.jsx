@@ -12,7 +12,6 @@ import {
 	groupHue,
 	groupMembers,
 	dropPlan,
-	nudgePlan,
 	planMoves,
 	pwrBadge,
 	selectedIds,
@@ -20,6 +19,7 @@ import {
 import {
 	clampSize,
 	crossRackPlan,
+	nudgeAction,
 	rackDeviceCount,
 	rackOf,
 	rackView,
@@ -789,13 +789,8 @@ export default function RackCanvas() {
 				return;
 			} else if ((key === "arrowup" || key === "arrowdown") && selIds.length) {
 				e.preventDefault();
-				// Nudges stay inside the first selected device's rack
-				const rackId = rackOf(state, selIds[0]);
-				const view = rackView(state, rackId);
-				if (!view) return;
-				const ids = selIds.filter((id) => findRow(view.slots, id) >= 0);
-				const plan = nudgePlan(view, ids, key === "arrowup" ? -1 : 1);
-				if (plan) dispatch({ type: "MOVE_DEVICES", rackId, moves: plan.moves });
+				const action = nudgeAction(state, selIds, key === "arrowup" ? -1 : 1);
+				if (action) dispatch(action);
 			} else if (key === "escape") {
 				dispatch({ type: "SELECT_DEVICE", deviceId: null });
 			} else if ((key === "delete" || key === "backspace") && selIds.length) {
